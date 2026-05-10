@@ -45,11 +45,13 @@ See `agent_docs/data-model.md` for the full schema. The schema migration ships i
 - Auto-retry on 403 — escalate or stop. Retry only on 429/503/504.
 - Reimplementing KBO checksum or Belgian phone validation — use `python-stdnum.be.vat` and `phonenumbers`.
 - Reading personal data into the system without per-source flags. (Out of scope for this iteration but the schema must support it later.)
+- Adding `update` or `delete` methods to `ObservationsRepo`. The repo is intentionally append-only.
 
 ## Per-source knowledge
 Skills live under `.claude/skills/<name>/SKILL.md` and load on demand. Don't put per-source detail
 in this file.
 - Polite scraping rules: `.claude/skills/polite-scraping/SKILL.md` (active)
+- Provenance schema rules: `.claude/skills/provenance-schema/SKILL.md` (active)
 
 ## Polite scraping
 Default 0.5 req/s per host, exponential backoff with jitter on 429/503. Honour Retry-After. Skip on 403.

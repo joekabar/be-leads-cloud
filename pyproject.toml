@@ -30,6 +30,9 @@ dev = [
     "playwright>=1.59",
 ]
 
+[project.scripts]
+be-leads-migrate = "scraper.db.migrations.runner:cli_main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -45,11 +48,18 @@ line-length = 100
 select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM", "TCH", "ASYNC", "S", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+"tests/**" = ["S101", "TC002", "TC003", "S603", "S608"]
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -58,6 +68,7 @@ testpaths = ["tests"]
 markers = [
     "network: tests that hit real third-party hosts",
     "slow: long-running tests",
+    "integration: tests that require a real Postgres instance",
 ]
 
 [tool.coverage.run]

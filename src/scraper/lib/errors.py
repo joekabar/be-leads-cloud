@@ -5,6 +5,26 @@ class ScraperError(Exception):
     pass
 
 
+class ConfigError(ScraperError):
+    """Required configuration value is missing or invalid."""
+
+
+class InvalidFieldError(ScraperError):
+    """Observation field name is not in the allowed set."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Unknown observation field: {name!r}")
+        self.name = name
+
+
+class InvalidSourceError(ScraperError):
+    """Observation source name is not in the allowed set."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Unknown observation source: {name!r}")
+        self.name = name
+
+
 class HttpError(ScraperError):
     def __init__(self, status: int, url: str, message: str) -> None:
         super().__init__(message)

@@ -50,6 +50,20 @@ Steps (to be documented):
 3. The `src/scraper/lib/http/` pool passes this to `httpx.AsyncClient(proxies=...)`.
 - `jq` (used by .claude/hooks/*.sh)
 
+## Database operations
+
+- Start dev Postgres: `docker compose up -d pg`
+- Apply migrations: `uv run be-leads-migrate`
+- Refresh companies_current: `docker compose exec pg psql -U leads -c "SELECT refresh_companies_current();"` (the pipeline does this automatically; manual only for debugging)
+- Wipe dev DB: `docker compose down -v` (destroys the volume — re-run `be-leads-migrate` after)
+
+## Test database
+
+- Integration tests create a disposable `leads_test_<timestamp>` DB and drop it at teardown.
+- Never point integration tests at the dev `leads` DB.
+- Run only integration tests: `uv run pytest -m integration`
+- Run unit tests only (fast, no DB): `uv run pytest -m "not network and not slow and not integration"`
+
 ## Spec deviations from initial prompts
    - Prompt 2 (polite-scraping): no runtime robots.txt checking. Project is testing-only.
    - Prompt 2: kbopub used for KBO number lookups too, not just function holders.

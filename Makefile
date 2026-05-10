@@ -13,10 +13,10 @@ install:
 	uv sync --locked --dev
 
 test:
-	uv run pytest --cov=src/scraper --cov-fail-under=85
+	uv run pytest --cov=src/scraper --cov-fail-under=85 -m "not network and not slow"
 
 test-fast:
-	uv run pytest -x -q -m "not network and not slow"
+	uv run pytest -x -q -m "not network and not slow and not integration"
 
 lint:
 	uv run ruff check .
