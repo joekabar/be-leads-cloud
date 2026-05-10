@@ -1,0 +1,3 @@
+{
+  "_readme": "Copy this file to settings.local.json (gitignored) to override project settings locally. Example: raise timeouts, add personal WebFetch domains, or temporarily widen permissions during debugging."
+}

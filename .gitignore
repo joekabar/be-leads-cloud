@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+dist/
+*.egg-info/
+*.egg
+
+# pytest / coverage
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# uv
+.uv-cache/
+
+# Environment
+.env
+.env.local
+
+# Claude
+.claude/settings.local.json
+.claude/hooks.log
+
+# Data
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

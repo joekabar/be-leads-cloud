@@ -1,0 +1,8 @@
+# Default: auto line endings for text files
+* text=auto
+
+# Shell scripts must always use LF (bash breaks on CRLF)
+*.sh text eol=lf
+
+# Makefile must use LF (tab-sensitive)
+Makefile text eol=lf

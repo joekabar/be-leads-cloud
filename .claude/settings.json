@@ -1,0 +1,91 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+    "allow": [
+      "Read", "Glob", "Grep", "LS", "TodoRead", "TodoWrite", "WebSearch",
+      "WebFetch(domain:goudengids.be)",
+      "WebFetch(domain:pagesdor.be)",
+      "WebFetch(domain:kbopub.economie.fgov.be)",
+      "WebFetch(domain:economie.fgov.be)",
+      "WebFetch(domain:consult.cbso.nbb.be)",
+      "WebFetch(domain:ws.cbso.nbb.be)",
+      "WebFetch(domain:nbb.be)",
+      "WebFetch(domain:bipt.be)",
+      "WebFetch(domain:statbel.fgov.be)",
+      "WebFetch(domain:duckduckgo.com)",
+      "WebFetch(domain:api.search.brave.com)",
+      "WebFetch(domain:web.archive.org)",
+      "WebFetch(domain:docs.claude.com)",
+      "Bash(uv run pytest:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(uv run mypy:*)",
+      "Bash(uv run python -m scraper.*)",
+      "Bash(uv run streamlit:*)",
+      "Bash(uv add:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv lock:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(make:*)",
+      "Bash(docker compose:*)",
+      "Bash(psql:*)",
+      "Bash(jq:*)",
+      "mcp__postgres__query",
+      "mcp__postgres__list_tables",
+      "mcp__postgres__describe_table",
+      "mcp__sequential-thinking__*"
+    ],
+    "ask": [
+      "Edit(src/**)", "Write(src/**)",
+      "Edit(.claude/**)", "Write(.claude/**)",
+      "Edit(.mcp.json)", "Edit(pyproject.toml)",
+      "Bash(git push:*)", "Bash(git rebase:*)",
+      "mcp__playwright__*"
+    ],
+    "deny": [
+      "Read(./.env)", "Read(./.env.*)",
+      "Read(~/.ssh/**)", "Read(~/.aws/**)",
+      "Bash(rm -rf /*)", "Bash(rm -rf ~*)",
+      "Bash(sudo:*)",
+      "Bash(curl http*)", "Bash(wget http*)",
+      "Bash(pip install:*)", "Bash(pip3 install:*)", "Bash(python -m pip install:*)",
+      "Bash(git push --force*)", "Bash(git push -f*)", "Bash(git reset --hard*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [{ "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tdd_gate.sh", "timeout": 10 }]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/bash_safety.sh", "timeout": 5 }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [{ "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/format_and_test.sh", "timeout": 120 }]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [{ "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/coverage_gate.sh", "timeout": 180 }]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [{ "type": "command", "command": "echo \"hooks-armed $(date -Iseconds)\" >> .claude/hooks.log" }]
+      }
+    ]
+  },
+  "showTurnDuration": true
+}
