@@ -49,6 +49,7 @@ See `agent_docs/data-model.md` for the full schema. The schema migration ships i
 ## Per-source knowledge
 Skills live under `.claude/skills/<name>/SKILL.md` and load on demand. Don't put per-source detail
 in this file.
+- Polite scraping rules: `.claude/skills/polite-scraping/SKILL.md` (active)
 
 ## Polite scraping
 Default 0.5 req/s per host, exponential backoff with jitter on 429/503. Honour Retry-After. Skip on 403.

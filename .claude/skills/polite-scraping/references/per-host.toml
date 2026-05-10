@@ -1,0 +1,54 @@
+[default]
+rps = 0.5
+concurrency = 2
+timeout_s = 12.0
+user_agent_pool_id = "browser-mix"
+
+["goudengids.be"]
+rps = 0.3
+concurrency = 1
+timeout_s = 15.0
+user_agent_pool_id = "chrome-only"
+notes = "Imperva Cloud WAF (cookie tier). Cookie warm-up via Playwright every 30-60 min."
+
+["pagesdor.be"]
+rps = 0.3
+concurrency = 1
+timeout_s = 15.0
+user_agent_pool_id = "chrome-only"
+notes = "Same parent (FCR Media) as goudengids.be."
+
+["kbopub.economie.fgov.be"]
+rps = 0.25
+concurrency = 1
+timeout_s = 15.0
+user_agent_pool_id = "browser-mix"
+notes = "Used for KBO number lookups and function holder lookups."
+
+["ws.cbso.nbb.be"]
+rps = 1.0
+concurrency = 2
+timeout_s = 20.0
+user_agent_pool_id = "api-client"
+notes = "Authentic Data Query — requires NBB CBSO subscription key (free product, registration required)."
+
+["api.search.brave.com"]
+rps = 1.0
+concurrency = 1
+timeout_s = 10.0
+user_agent_pool_id = "api-client"
+notes = "Free tier: 2000 queries/month, 1 qps."
+
+["duckduckgo.com"]
+rps = 0.3
+concurrency = 1
+timeout_s = 10.0
+user_agent_pool_id = "browser-mix"
+notes = "Use ddgs library; rate-limits aggressively even at low volume."
+
+["web.archive.org"]
+rps = 0.8
+concurrency = 1
+timeout_s = 30.0
+user_agent_pool_id = "identifying"
+notes = "CDX API. 60 req/min hard ceiling. Use a contact-bearing UA."

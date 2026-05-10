@@ -9,3 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Scaffold: project structure, pyproject.toml, Docker Compose, Claude hooks, and TDD guardrails (prompt 1).
+- Skill: `polite-scraping` with per-host TOML, headers, and status-code reference.
+- Module `src/scraper/lib/http/` (client, limiter, retry) and `lib/errors.py`.
+- Tests: 4 unit modules + 1 network-marked integration test.
