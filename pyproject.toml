@@ -32,6 +32,7 @@ dev = [
 
 [project.scripts]
 be-leads-migrate = "scraper.db.migrations.runner:cli_main"
+be-leads-validate-phone = "scraper.lib.validators.phone:cli_main"
 
 [build-system]
 requires = ["hatchling"]
@@ -48,7 +49,7 @@ line-length = 100
 select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM", "TCH", "ASYNC", "S", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "TC002", "TC003", "S603", "S608"]
+"tests/**" = ["S101", "TC002", "TC003", "S603", "S607", "S608"]
 
 [tool.ruff.lint.flake8-type-checking]
 runtime-evaluated-base-classes = ["pydantic.BaseModel"]

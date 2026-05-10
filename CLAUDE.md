@@ -52,6 +52,7 @@ Skills live under `.claude/skills/<name>/SKILL.md` and load on demand. Don't put
 in this file.
 - Polite scraping rules: `.claude/skills/polite-scraping/SKILL.md` (active)
 - Provenance schema rules: `.claude/skills/provenance-schema/SKILL.md` (active)
+- Belgian phone validation rules: `.claude/skills/belgian-phone-validation/SKILL.md` (active)
 
 ## Polite scraping
 Default 0.5 req/s per host, exponential backoff with jitter on 429/503. Honour Retry-After. Skip on 403.

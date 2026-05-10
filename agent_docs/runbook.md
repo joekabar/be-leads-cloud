@@ -64,6 +64,19 @@ Steps (to be documented):
 - Run only integration tests: `uv run pytest -m integration`
 - Run unit tests only (fast, no DB): `uv run pytest -m "not network and not slow and not integration"`
 
+## Phone validation
+
+Quick CLI test:
+
+    uv run be-leads-validate-phone "03 236 13 06"
+
+Refresh BIPT prefixes (quarterly):
+
+1. Download latest from https://www.bipt.be/operators/publication/database-with-reserved-and-allocated-numbers
+2. Update `.claude/skills/belgian-phone-validation/references/prefixes.tsv` preserving the column order
+3. Run: `uv run pytest tests/unit/lib/validators/ -q`
+4. Commit with message: `data: refresh BIPT prefix table (YYYY-MM)`
+
 ## Spec deviations from initial prompts
    - Prompt 2 (polite-scraping): no runtime robots.txt checking. Project is testing-only.
    - Prompt 2: kbopub used for KBO number lookups too, not just function holders.

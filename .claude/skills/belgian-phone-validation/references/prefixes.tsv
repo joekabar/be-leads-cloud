@@ -1,0 +1,64 @@
+prefix	length	kind	region_or_carrier	notes
+010	9	fixed_line	Wavre
+011	9	fixed_line	Hasselt
+012	9	fixed_line	Tongeren
+013	9	fixed_line	Diest
+014	9	fixed_line	Geel-Herentals-Turnhout
+015	9	fixed_line	Mechelen
+016	9	fixed_line	Leuven-Tienen
+019	9	fixed_line	Waremme
+02	9	fixed_line	Brussels
+03	9	fixed_line	Antwerp-Sint-Niklaas
+04	9	fixed_line	Liège-Voeren	does NOT use 046/047/048/049 sub-blocks
+050	9	fixed_line	Bruges-Zeebrugge
+051	9	fixed_line	Roeselare
+052	9	fixed_line	Dendermonde
+053	9	fixed_line	Aalst
+054	9	fixed_line	Ninove
+055	9	fixed_line	Ronse
+056	9	fixed_line	Kortrijk-Mouscron
+057	9	fixed_line	Ypres
+058	9	fixed_line	Veurne
+059	9	fixed_line	Ostend-Bredene-Gistel
+060	9	fixed_line	Chimay
+061	9	fixed_line	Bastogne-Libramont
+063	9	fixed_line	Arlon
+064	9	fixed_line	La Louvière
+065	9	fixed_line	Mons-Casteau
+067	9	fixed_line	Nivelles-Soignies
+068	9	fixed_line	Ath
+069	9	fixed_line	Tournai
+071	9	fixed_line	Charleroi
+080	9	fixed_line	Stavelot
+081	9	fixed_line	Namur
+082	9	fixed_line	Dinant
+083	9	fixed_line	Ciney
+084	9	fixed_line	Marche-en-Famenne
+085	9	fixed_line	Huy
+086	9	fixed_line	Durbuy
+087	9	fixed_line	Verviers
+089	9	fixed_line	Genk
+09	9	fixed_line	Ghent
+0455	10	mobile	Orange	VOO brand
+0456	10	mobile	Proximus	Mobile Viking brand
+0460	10	mobile	Proximus
+0465	10	mobile	Lycamobile
+0466	10	mobile	Orange	Hey! brand
+0467	10	mobile	Telenet	Liberty Global
+0468	10	mobile	Telenet	Liberty Global
+047	10	mobile	Proximus	047x range
+048	10	mobile	BASE	Liberty Global, 048x range
+049	10	mobile	Orange	049x range
+070	9	shared_cost	—	€0.30/min national pay rate
+077	9	m2m	—	machine-to-machine
+078	9	shared_cost	—	national pay rate
+0800	9	toll_free	—	€0.00/min freephone
+0900	9	premium_rate	—	€0.50/min
+0901	9	premium_rate	—	€0.50/call
+0902	9	premium_rate	—	€1.00/min
+0903	9	premium_rate	—	€1.50/min
+0904	9	premium_rate	—	€2.00/min
+0905	9	premium_rate	—	€2.00/call
+0906	9	premium_rate	—	€1.00/min
+0907	9	premium_rate	—	€2.00/min
+0909	9	premium_rate	—	€31.00/call
