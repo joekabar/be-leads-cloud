@@ -49,3 +49,7 @@ Steps (to be documented):
 2. Set `SCRAPER_PROXY_URL=http://user:pass@proxy.example.com:8080` in `.env.local`.
 3. The `src/scraper/lib/http/` pool passes this to `httpx.AsyncClient(proxies=...)`.
 - `jq` (used by .claude/hooks/*.sh)
+
+## Spec deviations from initial prompts
+   - Prompt 2 (polite-scraping): no runtime robots.txt checking. Project is testing-only.
+   - Prompt 2: kbopub used for KBO number lookups too, not just function holders.
