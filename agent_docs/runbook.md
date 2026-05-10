@@ -48,3 +48,4 @@ Steps (to be documented):
 1. Obtain a rotating proxy endpoint from your provider.
 2. Set `SCRAPER_PROXY_URL=http://user:pass@proxy.example.com:8080` in `.env.local`.
 3. The `src/scraper/lib/http/` pool passes this to `httpx.AsyncClient(proxies=...)`.
+- `jq` (used by .claude/hooks/*.sh)
