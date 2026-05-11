@@ -2,16 +2,37 @@
 
 > Operational procedures. Content is filled in as each source is added in subsequent prompts.
 
-## Daily KBO Open Data update
+## KBO Open Data ingestion
 
-> Coming in the KBO Open Data source prompt.
+### First Full load
 
-Steps (to be documented):
-1. Download the latest delta dump from `kbopub.economie.fgov.be/kbo-open-data/`.
-2. Validate ZIP checksums.
-3. Run `uv run python -m scraper.pipeline.kbo_refresh --mode=delta`.
-4. Confirm observation counts in `pipeline_runs` are non-zero.
-5. Run `REFRESH MATERIALISED VIEW CONCURRENTLY companies_current;`.
+1. Register at https://kbopub.economie.fgov.be/kbo-open-data/login?lang=en and accept the licence.
+2. Download `KboOpenData_<n>_<YYYY>_<MM>_Full.zip` to `data/kbo_dump/`.
+3. Validate the number: `uv run be-leads-validate-kbo <enterprise_number>`.
+4. Run the ingest:
+   ```
+   uv run be-leads-ingest-kbo --zip data/kbo_dump/KboOpenData_*_Full.zip
+   ```
+5. The last line of stdout is a JSON report — check `observations_inserted` > 0 and `phones_invalid_skipped` looks reasonable.
+6. Verify in Postgres: `SELECT count(*) FROM companies_current;`
+
+### Monthly Update ZIPs
+
+Same command — the CLI auto-detects Full vs Update from `meta.csv` (`ExtractType` key).
+Update ZIPs produce `status=deleted` observations for removed enterprises; no rows are deleted.
+
+### SFTP automation (future)
+
+`KboDumpDownloader` in `src/scraper/sources/kbo_dump/downloader.py` is a stub pending SFTP credentials from kbo-bce-webservice@economie.fgov.be.
+
+### Sector / city filtering
+
+```
+uv run be-leads-ingest-kbo --zip data/kbo_dump/*.zip \
+  --sector 43 --city Antwerpen --city Gent
+```
+
+Sector codes are NACE prefixes (e.g. `43` matches 43.1, 43.21, etc.). City names are matched case-insensitively against NL and FR municipality fields. Both filters are AND-combined.
 
 ## NBB CBSO key registration
 
@@ -79,4 +100,4 @@ Refresh BIPT prefixes (quarterly):
 
 ## Spec deviations from initial prompts
    - Prompt 2 (polite-scraping): no runtime robots.txt checking. Project is testing-only.
-   - Prompt 2: kbopub used for KBO number lookups too, not just function holders.
+   - Prompt 2: kbopub used for KBO number lookups too, not just function holders.2

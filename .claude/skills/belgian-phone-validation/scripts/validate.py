@@ -15,10 +15,7 @@ from scraper.lib.validators import InvalidPhoneError, validate_phone
 
 
 def main() -> None:
-    if len(sys.argv) >= 2:
-        phone = sys.argv[1]
-    else:
-        phone = sys.stdin.readline().strip()
+    phone = sys.argv[1] if len(sys.argv) >= 2 else sys.stdin.readline().strip()
 
     try:
         result = validate_phone(phone)

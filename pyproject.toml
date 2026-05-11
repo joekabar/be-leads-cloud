@@ -33,6 +33,8 @@ dev = [
 [project.scripts]
 be-leads-migrate = "scraper.db.migrations.runner:cli_main"
 be-leads-validate-phone = "scraper.lib.validators.phone:cli_main"
+be-leads-ingest-kbo = "scraper.sources.kbo_dump.cli:cli_main"
+be-leads-validate-kbo = "scraper.sources.kbo_dump.cli:cli_validate"
 
 [build-system]
 requires = ["hatchling"]

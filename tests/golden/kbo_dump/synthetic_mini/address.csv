@@ -1,0 +1,7 @@
+EntityNumber,TypeOfAddress,CountryNL,CountryFR,Zipcode,MunicipalityNL,MunicipalityFR,StreetNL,StreetFR,HouseNumber,Box,ExtraAddressInfo,DateStrikingOff
+0439401387,REGO,België,Belgique,2060,Antwerpen,Anvers,Lange Van Bloerstraat,Rue Lange Van Bloer,116,,,
+0439401387,CORR,België,Belgique,1000,Brussel,Bruxelles,Wetstraat,Rue de la Loi,16,,,
+0123456749,REGO,België,Belgique,4000,,Liège,,Rue de la Régence,5,,,
+1000000021,REGO,België,Belgique,1000,Brussel,Bruxelles,Nieuwstraat,Rue Neuve,10,,,
+0200379531,REGO,België,Belgique,9000,Gent,Gand,,,,,,
+0800000075,REGO,België,Belgique,9000,Gent,Gand,Veldstraat,Rue du Champ,1,,,
