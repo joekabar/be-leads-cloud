@@ -37,6 +37,7 @@ be-leads-ingest-kbo = "scraper.sources.kbo_dump.cli:cli_main"
 be-leads-validate-kbo = "scraper.sources.kbo_dump.cli:cli_validate"
 be-leads-fetch-kbopub = "scraper.sources.kbopub_html.cli:cli_main"
 be-leads-fetch-nbb = "scraper.sources.nbb_authentic.cli:cli_main"
+be-leads-discover-goudengids = "scraper.sources.goudengids.cli:cli_main"
 
 [build-system]
 requires = ["hatchling"]

@@ -1,0 +1,186 @@
+"""Orchestrate a full goudengids sector x city ingest run."""
+
+from __future__ import annotations
+
+import time
+import tomllib
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal
+
+import structlog
+
+from scraper.db.repositories.observations import ObservationsRepo
+from scraper.db.repositories.runs import RunsRepo
+from scraper.lib.errors import BlockedError
+from scraper.sources.goudengids.parser import parse_listing_page
+from scraper.sources.goudengids.transformer import card_to_observations, make_placeholder_kbo
+
+if TYPE_CHECKING:
+    import asyncpg
+
+    from scraper.db.models import Observation
+    from scraper.sources.goudengids.fetcher import GoudengidsFetcher
+
+logger = structlog.get_logger()
+
+_SECTORS_TOML = (
+    Path(__file__).parents[4]
+    / ".claude"
+    / "skills"
+    / "goudengids-listing"
+    / "references"
+    / "sectors.toml"
+)
+_BATCH_SIZE = 200
+
+
+def load_valid_sectors() -> dict[str, str]:
+    """Return {nl_slug: display_name} for all sectors in sectors.toml."""
+    with _SECTORS_TOML.open("rb") as fh:
+        data = tomllib.load(fh)
+    return {
+        str(v["nl_slug"]): str(v.get("display", v["nl_slug"]))
+        for v in data.values()
+        if isinstance(v, dict) and "nl_slug" in v
+    }
+
+
+@dataclass
+class GoudengidsReport:
+    sector: str
+    city: str
+    pages_scanned: int = 0
+    cards_found: int = 0
+    cards_with_phone: int = 0
+    cards_with_website: int = 0
+    observations_inserted: int = 0
+    placeholders_created: int = 0
+    duration_s: float = 0.0
+
+
+async def _recent_placeholder_kbos(
+    pool: asyncpg.Pool,
+    cutoff: datetime,
+) -> set[str]:
+    rows = await pool.fetch(
+        "SELECT DISTINCT kbo_number FROM observations "
+        "WHERE source = 'goudengids' AND observed_at > $1 AND kbo_number LIKE '9%'",
+        cutoff,
+    )
+    return {r["kbo_number"] for r in rows}
+
+
+async def ingest_sector_city(
+    sector_slug: str,
+    city_slug: str,
+    pool: asyncpg.Pool,
+    fetcher: GoudengidsFetcher,
+    *,
+    max_pages: int = 25,
+    lang: Literal["nl", "fr"] = "nl",
+    skip_recent_hours: int = 24,
+) -> GoudengidsReport:
+    """Scrape all listing pages for sector x city and write observations.
+
+    Idempotent within skip_recent_hours: cards whose placeholder KBO already has a
+    recent goudengids observation are skipped.
+    """
+    valid_sectors = load_valid_sectors()
+    if sector_slug not in valid_sectors:
+        raise ValueError(
+            f"Unknown sector slug {sector_slug!r}. Valid slugs: {sorted(valid_sectors)}"
+        )
+    if not city_slug.strip():
+        raise ValueError("city_slug must not be empty")
+
+    t0 = time.monotonic()
+    report = GoudengidsReport(sector=sector_slug, city=city_slug)
+
+    runs_repo = RunsRepo(pool)
+    obs_repo = ObservationsRepo(pool)
+
+    run_id = await runs_repo.start_run(
+        source="goudengids",
+        sector_slug=sector_slug,
+        city_slug=city_slug,
+    )
+    snapshot_at = datetime.now(tz=UTC)
+    log = logger.bind(
+        run_id=str(run_id),
+        source="goudengids",
+        sector=sector_slug,
+        city=city_slug,
+    )
+    log.info("goudengids_ingest_started", max_pages=max_pages, lang=lang)
+
+    # Pre-load recently-seen placeholder KBOs to avoid redundant inserts.
+    recent_kbos: set[str] = set()
+    if skip_recent_hours > 0:
+        cutoff = snapshot_at - timedelta(hours=skip_recent_hours)
+        recent_kbos = await _recent_placeholder_kbos(pool, cutoff)
+
+    await fetcher.warm()
+
+    buffer: list[Observation] = []
+    seen_placeholders: set[str] = set()
+
+    try:
+        for page_num in range(1, max_pages + 1):
+            try:
+                listing = await fetcher.fetch_page(sector_slug, city_slug, page_num, lang=lang)
+            except BlockedError:
+                log.error("goudengids_blocked_aborting", page=page_num)
+                break
+
+            report.pages_scanned += 1
+
+            if listing.is_last_page:
+                break
+
+            cards = parse_listing_page(listing.html, domain=fetcher._domain)
+            report.cards_found += len(cards)
+
+            for card in cards:
+                placeholder = make_placeholder_kbo(card.name, card.address_postal_code)
+
+                if placeholder in recent_kbos:
+                    continue
+
+                if card.phones:
+                    report.cards_with_phone += 1
+                if card.website:
+                    report.cards_with_website += 1
+
+                obs = card_to_observations(card, run_id, snapshot_at)
+                buffer.extend(obs)
+
+                if placeholder not in seen_placeholders:
+                    seen_placeholders.add(placeholder)
+                    report.placeholders_created += 1
+
+                if len(buffer) >= _BATCH_SIZE:
+                    ids = await obs_repo.insert_many(buffer)
+                    report.observations_inserted += len(ids)
+                    buffer.clear()
+
+        if buffer:
+            ids = await obs_repo.insert_many(buffer)
+            report.observations_inserted += len(ids)
+            buffer.clear()
+
+    finally:
+        await pool.execute("SELECT refresh_companies_current()")
+        await runs_repo.finish_run(run_id, jobs_done=report.observations_inserted)
+
+    report.duration_s = time.monotonic() - t0
+    log.info(
+        "goudengids_ingest_finished",
+        pages_scanned=report.pages_scanned,
+        cards_found=report.cards_found,
+        observations_inserted=report.observations_inserted,
+        placeholders_created=report.placeholders_created,
+        duration_s=round(report.duration_s, 2),
+    )
+    return report

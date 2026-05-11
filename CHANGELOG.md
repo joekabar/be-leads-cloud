@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Skill: `goudengids-listing` with `selectors.md`, `imperva-bypass.md`, `sectors.toml` (65 sectors), and `scripts/probe_listing.py`.
+- Source: `goudengids` — Playwright warmup + httpx-based listing scraper for goudengids.be / pagesdor.be.
+- Synthetic placeholder KBO scheme (9-prefix, SHA-256-based) for sources without authoritative KBO numbers.
+- 4 golden HTML fixtures: antwerpen full (12 cards), brugge sparse (6 cards), no-results, FR Liège.
+- CLI: `uv run be-leads-discover-goudengids --sector <slug> --city <name>`.
+- `Observation._validate_kbo` now accepts 10-digit 9-prefix placeholder KBOs.
+- Provenance-schema skill §9: Synthetic placeholder KBOs documented.
+- Runbook: Goudengids / pagesdor discovery section with rate, blocking, and placeholder guidance.
 - Skill: `nbb-financials` with `SKILL.md`, `references/api-spec.md`, `references/field-mapping.md`, `references/filing-types.md`, and `scripts/probe.py`.
 - Source: `src/scraper/sources/nbb_authentic/` — async REST client + parser + transformer + ingester for NBB CBSO Authentic Data API.
 - Two new errors in `lib/errors.py`: `NbbAuthError` (401 — abort batch) and `NbbNotFoundError` (404 — skip and continue).

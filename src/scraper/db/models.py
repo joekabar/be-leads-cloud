@@ -24,6 +24,10 @@ class Observation(BaseModel):
     @field_validator("kbo_number")
     @classmethod
     def _validate_kbo(cls, v: str) -> str:
+        # Synthetic placeholder KBOs (9-prefix, 10 digits) bypass the mod-97 checksum.
+        # They are issued by sources without authoritative KBO numbers (e.g. goudengids).
+        if isinstance(v, str) and len(v) == 10 and v.startswith("9") and v.isdigit():
+            return v
         from stdnum.be import vat
 
         try:

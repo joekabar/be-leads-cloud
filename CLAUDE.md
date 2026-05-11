@@ -46,6 +46,7 @@ See `agent_docs/data-model.md` for the full schema. The schema migration ships i
 - Reimplementing KBO checksum or Belgian phone validation — use `python-stdnum.be.vat` and `phonenumbers`.
 - Reading personal data into the system without per-source flags. (Out of scope for this iteration but the schema must support it later.)
 - Adding `update` or `delete` methods to `ObservationsRepo`. The repo is intentionally append-only.
+- Concurrent goudengids requests. The host's WAF penalises bursts harder than sustained low rate. Always concurrency 1.
 
 ## Per-source knowledge
 Skills live under `.claude/skills/<name>/SKILL.md` and load on demand. Don't put per-source detail
@@ -55,6 +56,7 @@ in this file.
 - Belgian phone validation rules: `.claude/skills/belgian-phone-validation/SKILL.md` (active)
 - KBO / CBE rules (Open Data + kbopub): `.claude/skills/kbo-lookup/SKILL.md` (active)
 - NBB financials rules: `.claude/skills/nbb-financials/SKILL.md` (active)
+- Goudengids / pagesdor scraping rules: `.claude/skills/goudengids-listing/SKILL.md` (active)
 
 ## Polite scraping
 Default 0.5 req/s per host, exponential backoff with jitter on 429/503. Honour Retry-After. Skip on 403.

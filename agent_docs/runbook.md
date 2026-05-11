@@ -125,19 +125,66 @@ Only emits observations for `exercise_year >= current_year - 3`.
 `.claude/skills/polite-scraping/references/per-host.toml`). A batch of 1 000 KBOs
 takes ~17 min wall-clock (avg 2 calls per KBO).
 
-## Imperva cookie warm-up
+## Goudengids / pagesdor discovery
 
-> Coming in the goudengids/pagesdor source prompt.
+### Initial setup
 
-Some listing pages on goudengids.be and pagesdor.be are behind Imperva/Incapsula. A
-browser-based warm-up step (via Playwright) generates a valid session cookie. The async
-scraper then uses this cookie for subsequent requests.
+```bash
+uv run playwright install chromium     # ~150 MB, one-time
+```
 
-Steps (to be documented):
-1. `uv run playwright install chromium` (one-time).
-2. `uv run python -m scraper.sources.goudengids.warm_up` — opens a headless browser,
-   completes the challenge, dumps the cookie jar to `data/cookies/goudengids.json`.
-3. The fetcher reads the cookie jar on startup.
+### Discover a sector × city
+
+```bash
+uv run be-leads-discover-goudengids --sector elektriciens --city antwerpen --max-pages 10
+```
+
+Last stdout line is a JSON report:
+```json
+{"sector":"elektriciens","city":"antwerpen","pages_scanned":10,"cards_found":98,
+ "cards_with_phone":82,"cards_with_website":54,"observations_inserted":412,
+ "placeholders_created":98,"duration_s":37.2}
+```
+
+### French variant (pagesdor.be)
+
+```bash
+uv run be-leads-discover-goudengids --sector electriciens --city liege --lang fr
+```
+
+`--lang fr` switches the domain to `pagesdor.be` and uses `/recherche/` URLs.
+
+### Rate
+
+0.3 req/s, concurrency 1. 10 pages × ~10 cards = ~100 leads per run, ~35 seconds
+wall-clock (plus 3–5 s Playwright warmup).
+
+### When goudengids blocks
+
+A 403 triggers an automatic re-warmup + retry. If the second attempt also 403s, the
+ingester aborts cleanly with a `BlockedError` and logs `goudengids_blocked_aborting`.
+
+If blocks become consistent:
+1. Stop using the CLI for at least an hour, then resume.
+2. If still blocked after multiple hours: consider routing through a residential proxy.
+   See `.claude/skills/goudengids-listing/references/imperva-bypass.md` for the planned
+   proxy injection point (not implemented in prompt 8).
+
+### Cookie hygiene
+
+Cookies live ~30–60 min. The fetcher auto-refreshes at 25 min. Do NOT cache cookies
+across process restarts — the fetcher always warms up fresh on startup.
+
+### Synthetic placeholder KBOs
+
+Goudengids listing pages don't include KBO numbers. The transformer assigns each card a
+deterministic 10-digit placeholder KBO starting with `9` (real KBOs start with `0`/`1`).
+These are reconciled to real KBOs by the consolidation pass (prompt 11).
+
+To query only confirmed-real companies (excluding placeholders):
+```sql
+SELECT * FROM observations WHERE kbo_number NOT LIKE '9%';
+```
 
 ## Rotating residential IP
 

@@ -68,6 +68,29 @@ function_holder:{"name": "Boonen, Jan", "role": "bestuurder", "since": "2024-03-
 revenue_2023:   {"value": 30326, "currency": "EUR", "filing_ref": "2024-00000148"}
 ```
 
+## 9. Synthetic placeholder KBOs
+
+Sources without authoritative KBO numbers (goudengids listing pages, search engines)
+emit observations under a synthetic placeholder KBO formed as:
+
+```python
+import hashlib
+key = f"{name.lower().strip()}|{(postal_code or '').strip()}".encode("utf-8")
+h = int(hashlib.sha256(key).hexdigest(), 16)
+placeholder = f"9{h % 10**9:09d}"
+```
+
+Properties:
+- Always 10 digits starting with `9` — real KBOs start with `0` or `1`
+- Deliberately fails the mod-97 checksum, so it cannot collide with a real KBO
+- Deterministic: same `(name, postal_code)` → same placeholder across runs
+- The `Observation._validate_kbo` validator accepts these (bypasses stdnum check)
+
+The consolidation pass (`src/scraper/pipeline/consolidate.py`, prompt 11) maps placeholders
+to real KBOs by `(name, postal_code, city)` fuzzy match. Until consolidation, placeholder
+observations remain queryable but live in a "candidate" tier (filter with
+`kbo_number LIKE '9%'` or `kbo_number NOT LIKE '0%' AND kbo_number NOT LIKE '1%'`).
+
 ## 8. Append-only enforcement
 
 `scripts/verify_no_updates.sh` greps `src/` for `UPDATE observations` and
