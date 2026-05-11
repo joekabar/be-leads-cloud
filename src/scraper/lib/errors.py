@@ -50,3 +50,20 @@ class TerminalServerError(HttpError):
 
 class RetriesExhaustedError(ScraperError):
     """All retry attempts consumed without a successful response."""
+
+
+class InvalidKboError(ScraperError):
+    """KBO number is syntactically invalid (fails mod-97 checksum)."""
+
+    def __init__(self, number: str) -> None:
+        super().__init__(f"Invalid KBO number: {number!r}")
+        self.number = number
+
+
+class KboNotFoundError(ScraperError):
+    """KBO number is valid but not found in the kbopub registry (HTTP 404)."""
+
+    def __init__(self, number: str, url: str) -> None:
+        super().__init__(f"KBO not found: {number!r} at {url}")
+        self.number = number
+        self.url = url

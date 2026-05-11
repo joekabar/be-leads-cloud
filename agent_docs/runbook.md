@@ -34,6 +34,41 @@ uv run be-leads-ingest-kbo --zip data/kbo_dump/*.zip \
 
 Sector codes are NACE prefixes (e.g. `43` matches 43.1, 43.21, etc.). City names are matched case-insensitively against NL and FR municipality fields. Both filters are AND-combined.
 
+## kbopub function holder enrichment
+
+### Manual run (single or small batch)
+
+```bash
+uv run be-leads-fetch-kbopub --kbos 0439401387,0234567873 --lang nl
+```
+
+Last stdout line is a JSON report:
+```json
+{"kbos_processed": 2, "kbos_not_found": 0, "kbos_invalid": 0,
+ "function_holders_total": 4, "observations_inserted": 4, "duration_s": 8.1}
+```
+
+### Batch run from file
+
+```bash
+uv run be-leads-fetch-kbopub --kbos @data/kbos.txt --lang nl --skip-recent-hours 24
+```
+
+One KBO per line in `kbos.txt`. Lines beginning with whitespace-only or empty after strip are skipped. `--skip-recent-hours 24` (default) skips KBOs already fetched in the last 24 h. Pass `--skip-recent-hours 0` to force re-fetch.
+
+### Rate
+
+kbopub is throttled to **0.25 req/s with concurrency 1** (configured in `.claude/skills/polite-scraping/references/per-host.toml`). A batch of 100 KBOs takes roughly 7 minutes.
+
+### When kbopub blocks (HTTP 403)
+
+The scraper raises `BlockedError` and aborts immediately — it does **not** retry on 403.
+
+1. Stop the process.
+2. Wait at least 30 minutes before retrying.
+3. If blocks persist, the IP may need rotation (see *Rotating residential IP* section below).
+4. Re-run with `--skip-recent-hours 0` only for the KBOs that did not complete.
+
 ## NBB CBSO key registration
 
 > Coming in the NBB source prompt.

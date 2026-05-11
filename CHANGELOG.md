@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Source: `src/scraper/sources/kbopub_html/` — fetches kbopub detail pages to extract function holders (directors, managers, auditors) and writes them as append-only `function_holder` observations with confidence 0.95.
+- CLI entry point `be-leads-fetch-kbopub` with `--kbos` (comma list or `@file`), `--lang`, `--skip-recent-hours`, `--database-url`.
+- Parser supports NL + FR page languages, 21 role labels mapped to canonical English slugs, legal-person and linked-KBO detection, and `since` date parsing.
+- Idempotency: skips KBOs with a kbopub observation within `--skip-recent-hours` (default 24).
+- BlockedError on HTTP 403 aborts the batch without retry; 404 is counted and the batch continues.
+- 5 golden HTML fixtures in `tests/golden/kbopub_html/`.
+- 46 unit tests (parser, transformer) + 8 integration tests + 1 slow rate-limiter timing test; coverage 98.4%.
+- Updated `kbopub-selectors.md` with page structure, selectors, role-label table, and date-parsing rules.
+- Updated runbook with function-holder enrichment section (manual run, batch, rate, 403 handling).
 - Skill: `kbo-lookup` with SKILL.md, `references/open-data-schema.md`, `references/checksum.md`, `references/kbopub-selectors.md` (placeholder), and `scripts/validate_kbo.py`.
 - Source: `src/scraper/sources/kbo_dump/` — streaming CSV parser, observation transformer, idempotent ingester (Pattern A dedup by kbo/field/value/source), Update ZIP delete markers, sector/city filter.
 - CLI entry points: `be-leads-ingest-kbo` and `be-leads-validate-kbo`.
