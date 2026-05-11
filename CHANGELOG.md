@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Skill: `nbb-financials` with `SKILL.md`, `references/api-spec.md`, `references/field-mapping.md`, `references/filing-types.md`, and `scripts/probe.py`.
+- Source: `src/scraper/sources/nbb_authentic/` — async REST client + parser + transformer + ingester for NBB CBSO Authentic Data API.
+- Two new errors in `lib/errors.py`: `NbbAuthError` (401 — abort batch) and `NbbNotFoundError` (404 — skip and continue).
+- 8 static JSON fixtures in `tests/golden/nbb_authentic/` covering 3-year, 1-year, empty, and null-field cases.
+- 25 unit tests (parser, transformer) + 17 integration tests (client, ingester, CLI); coverage ≥ 90 % on `nbb_authentic`.
+- CLI: `uv run be-leads-fetch-nbb --kbos <list>` with `--years-back`, `--skip-recent-hours`, `--subscription-key`.
+- Runbook: NBB CBSO registration walkthrough + ingestion commands.
 - Source: `src/scraper/sources/kbopub_html/` — fetches kbopub detail pages to extract function holders (directors, managers, auditors) and writes them as append-only `function_holder` observations with confidence 0.95.
 - CLI entry point `be-leads-fetch-kbopub` with `--kbos` (comma list or `@file`), `--lang`, `--skip-recent-hours`, `--database-url`.
 - Parser supports NL + FR page languages, 21 role labels mapped to canonical English slugs, legal-person and linked-KBO detection, and `since` date parsing.

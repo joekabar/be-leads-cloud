@@ -54,6 +54,7 @@ in this file.
 - Provenance schema rules: `.claude/skills/provenance-schema/SKILL.md` (active)
 - Belgian phone validation rules: `.claude/skills/belgian-phone-validation/SKILL.md` (active)
 - KBO / CBE rules (Open Data + kbopub): `.claude/skills/kbo-lookup/SKILL.md` (active)
+- NBB financials rules: `.claude/skills/nbb-financials/SKILL.md` (active)
 
 ## Polite scraping
 Default 0.5 req/s per host, exponential backoff with jitter on 429/503. Honour Retry-After. Skip on 403.

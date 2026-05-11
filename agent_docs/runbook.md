@@ -69,15 +69,61 @@ The scraper raises `BlockedError` and aborts immediately — it does **not** ret
 3. If blocks persist, the IP may need rotation (see *Rotating residential IP* section below).
 4. Re-run with `--skip-recent-hours 0` only for the KBOs that did not complete.
 
-## NBB CBSO key registration
+## NBB CBSO Authentic Data — registration
 
-> Coming in the NBB source prompt.
+1. Visit `https://api-portal.nbb.be`
+2. Create account, verify email.
+3. Subscribe to the product **"Authentic Data Query"** (FREE).
+4. Copy the Subscription Key from "Profile → Subscriptions."
+5. Add to `.env`:
+   ```
+   NBB_CBSO_API_KEY=<your_key>
+   ```
+6. Verify:
+   ```
+   uv run python .claude/skills/nbb-financials/scripts/probe.py
+   ```
 
-Steps (to be documented):
-1. Register at `ws.cbso.nbb.be` for Authentic Data access.
-2. Obtain `NBB_CBSO_API_KEY` and `NBB_CBSO_CLIENT_NUMBER`.
-3. Add both to `.env.local` (gitignored).
-4. Verify: `uv run python -m scraper.sources.nbb_cbso --check-auth`.
+**Activation note:** subscriptions are typically active within minutes, sometimes
+takes 1–2 hours. If `/references` returns 401 after 24 h, contact api-portal
+support via the portal (their contact address rotates; do not put it in the repo).
+
+## NBB financial data ingestion
+
+### Manual run (single or small batch)
+
+```bash
+uv run be-leads-fetch-nbb --kbos 0439401387,0502699332 --subscription-key $NBB_CBSO_API_KEY
+```
+
+Last stdout line is a JSON report:
+```json
+{"kbos_processed": 2, "kbos_not_found": 0, "references_total": 4,
+ "observations_inserted": 11, "duration_s": 4.2}
+```
+
+### Batch run from file
+
+```bash
+uv run be-leads-fetch-nbb --kbos @data/kbos.txt --skip-recent-hours 24
+```
+
+One KBO per line in `kbos.txt`. `--skip-recent-hours 24` (default) skips KBOs already
+fetched in the last 24 h.
+
+### Limit years fetched
+
+```bash
+uv run be-leads-fetch-nbb --kbos 0439401387 --years-back 3
+```
+
+Only emits observations for `exercise_year >= current_year - 3`.
+
+### Rate
+
+`ws.cbso.nbb.be` is throttled to **1.0 req/s with concurrency 2** (configured in
+`.claude/skills/polite-scraping/references/per-host.toml`). A batch of 1 000 KBOs
+takes ~17 min wall-clock (avg 2 calls per KBO).
 
 ## Imperva cookie warm-up
 

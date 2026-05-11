@@ -1,0 +1,14 @@
+{
+  "references": [
+    {
+      "referenceNumber": "2024-00012345",
+      "depositDate": "2024-06-15",
+      "exerciseStart": "2023-01-01",
+      "exerciseEnd": "2023-12-31",
+      "modelType": "MICRO",
+      "language": "NL",
+      "depositType": "DEPOSIT",
+      "filingMethod": "STRUCTURED"
+    }
+  ]
+}

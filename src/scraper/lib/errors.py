@@ -67,3 +67,16 @@ class KboNotFoundError(ScraperError):
         super().__init__(f"KBO not found: {number!r} at {url}")
         self.number = number
         self.url = url
+
+
+class NbbNotFoundError(ScraperError):
+    """KBO not found in NBB CBSO (HTTP 404) — entity never filed, or does not exist."""
+
+    def __init__(self, number: str, url: str) -> None:
+        super().__init__(f"KBO not found in NBB CBSO: {number!r} at {url}")
+        self.number = number
+        self.url = url
+
+
+class NbbAuthError(HttpError):
+    """NBB CBSO returned 401 — subscription key invalid or expired."""
