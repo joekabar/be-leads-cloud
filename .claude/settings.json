@@ -123,7 +123,6 @@
       "Bash(git push:*)",
       "Bash(git rebase:*)",
       "mcp__playwright__*"
-],
     ],
     "deny": [
       "Read(./.env)", "Read(./.env.*)",
