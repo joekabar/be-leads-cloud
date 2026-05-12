@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Skill: `website-analysis` with `selectors-heuristics.md`, `age-heuristics.md`, `extraction-priorities.md` references and `scripts/analyze_url.py`.
+- Source: `website` — fetcher, JSON-LD extractor (`structured.py`), contact-page discoverer (`contact_page.py`), person extractor — microdata + heuristic (`persons.py`), age estimator — WHOIS + footer year (`age.py`), transformer, ingester (concurrency-15 fan-out, 7-day skip window), CLI.
+- 5 golden HTML fixtures in `tests/golden/website/`: WordPress LocalBusiness, Squarespace Organization, custom-no-JSON-LD, Person microdata contact page, FR heuristic about page.
+- CLI: `uv run be-leads-enrich-website --kbos-and-websites <tsv>` or `--from-db --limit N`.
+- Added `python-whois>=0.9.5` runtime dependency (optional WHOIS path; falls back gracefully to footer-year if unavailable).
+- Updated CLAUDE.md: `website-analysis` skill reference.
 - Skill: `goudengids-listing` with `selectors.md`, `imperva-bypass.md`, `sectors.toml` (65 sectors), and `scripts/probe_listing.py`.
 - Source: `goudengids` — Playwright warmup + httpx-based listing scraper for goudengids.be / pagesdor.be.
 - Synthetic placeholder KBO scheme (9-prefix, SHA-256-based) for sources without authoritative KBO numbers.

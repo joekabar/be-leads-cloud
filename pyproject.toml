@@ -15,6 +15,7 @@ dependencies = [
     "python-stdnum>=1.20",
     "phonenumbers>=8.13",
     "python-dotenv>=1.0",
+    "python-whois>=0.9.5",
 ]
 
 [dependency-groups]
@@ -38,6 +39,7 @@ be-leads-validate-kbo = "scraper.sources.kbo_dump.cli:cli_validate"
 be-leads-fetch-kbopub = "scraper.sources.kbopub_html.cli:cli_main"
 be-leads-fetch-nbb = "scraper.sources.nbb_authentic.cli:cli_main"
 be-leads-discover-goudengids = "scraper.sources.goudengids.cli:cli_main"
+be-leads-enrich-website = "scraper.sources.website.cli:cli_main"
 
 [build-system]
 requires = ["hatchling"]

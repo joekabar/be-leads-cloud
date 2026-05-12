@@ -152,6 +152,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "python-stdnum" },
+    { name = "python-whois" },
     { name = "streamlit" },
     { name = "structlog" },
     { name = "tenacity" },
@@ -181,6 +182,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.7" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "python-stdnum", specifier = ">=1.20" },
+    { name = "python-whois", specifier = ">=0.9.5" },
     { name = "streamlit", specifier = ">=1.36" },
     { name = "structlog", specifier = ">=24" },
     { name = "tenacity", specifier = ">=9" },
@@ -1655,6 +1657,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/15/7f/96c2b9de6024353177dc6139c33730d5ac25877bc33215515d6b95b84555/python_stdnum-2.2.tar.gz", hash = "sha256:e95fcfa858a703d4a40130cb3eaac133c60d8808a7f3c98efeedac968c2479b9", size = 1311813, upload-time = "2026-01-04T19:36:16.753Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2f/61/aa32d9c79f83a2fae033cd6496fb2a24aba918d31c73704271dfcfb48375/python_stdnum-2.2-py3-none-any.whl", hash = "sha256:bdf98fd117a0ca152e4047aa8ad254bae63853d4e915ddd4e0effb33ba0e9260", size = 1193213, upload-time = "2026-01-04T19:36:14.812Z" },
+]
+
+[[package]]
+name = "python-whois"
+version = "0.9.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f1/0c/537914eca91ee5ff281309a5ca71da23c0c975cd6658668a44d3fdcf1cc4/python_whois-0.9.6.tar.gz", hash = "sha256:2e6de7b6d70e305a85f4859cd17781ee3f0da3a02a8e94f23cb4cdcd2e400bfa", size = 125107, upload-time = "2025-10-07T04:36:14.913Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/46/53/d0ceb3ae30da8e8ec2d9af11050178f3b4114d5aa6a7f7074199db3c806f/python_whois-0.9.6-py3-none-any.whl", hash = "sha256:153261941a4d238b1278a4ca9b5b5e0590ed3b4d0c534ba111c4434d5d339410", size = 116976, upload-time = "2025-10-07T04:36:12.328Z" },
 ]
 
 [[package]]

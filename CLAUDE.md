@@ -57,6 +57,7 @@ in this file.
 - KBO / CBE rules (Open Data + kbopub): `.claude/skills/kbo-lookup/SKILL.md` (active)
 - NBB financials rules: `.claude/skills/nbb-financials/SKILL.md` (active)
 - Goudengids / pagesdor scraping rules: `.claude/skills/goudengids-listing/SKILL.md` (active)
+- Website enrichment rules: `.claude/skills/website-analysis/SKILL.md` (active)
 
 ## Polite scraping
 Default 0.5 req/s per host, exponential backoff with jitter on 429/503. Honour Retry-After. Skip on 403.
