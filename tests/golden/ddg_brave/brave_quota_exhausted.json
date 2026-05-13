@@ -1,0 +1,5 @@
+{
+  "_note": "Simulates HTTP 403 from Brave API (monthly quota exhausted). BraveClient raises BraveQuotaExhausted — no JSON body is parsed in this case.",
+  "status": 403,
+  "message": "Monthly quota exhausted"
+}

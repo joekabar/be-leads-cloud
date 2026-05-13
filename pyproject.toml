@@ -16,6 +16,7 @@ dependencies = [
     "phonenumbers>=8.13",
     "python-dotenv>=1.0",
     "python-whois>=0.9.5",
+    "ddgs>=9",
 ]
 
 [dependency-groups]
@@ -40,6 +41,7 @@ be-leads-fetch-kbopub = "scraper.sources.kbopub_html.cli:cli_main"
 be-leads-fetch-nbb = "scraper.sources.nbb_authentic.cli:cli_main"
 be-leads-discover-goudengids = "scraper.sources.goudengids.cli:cli_main"
 be-leads-enrich-website = "scraper.sources.website.cli:cli_main"
+be-leads-search-validate = "scraper.sources.ddg_brave.cli:cli_main"
 
 [build-system]
 requires = ["hatchling"]
@@ -67,6 +69,10 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["ddgs", "ddgs.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

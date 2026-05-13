@@ -1,0 +1,43 @@
+{
+  "type": "search",
+  "web": {
+    "type": "search",
+    "results": [
+      {
+        "type": "search_result",
+        "title": "Bakk Brugge - Ambachtelijke Bakkerij",
+        "url": "https://www.bakk.be/",
+        "language": "nl",
+        "description": "Bakk is een ambachtelijke bakkerij in Brugge."
+      },
+      {
+        "type": "search_result",
+        "title": "Bakk op Goudengids",
+        "url": "https://www.goudengids.be/bedrijf/Brugge/B123456/Bakk/",
+        "language": "nl",
+        "description": "Bakk contactgegevens."
+      },
+      {
+        "type": "search_result",
+        "title": "Bakkerijen in Brugge vergeleken",
+        "url": "https://www.hln.be/nieuws/bakkerijen-brugge/",
+        "language": "nl",
+        "description": "HLN artikel over bakkerijen in Brugge."
+      },
+      {
+        "type": "search_result",
+        "title": "Bakk - Kompass",
+        "url": "https://be.kompass.com/c/bakk/be123/",
+        "language": "nl",
+        "description": "Bakk company profile."
+      },
+      {
+        "type": "search_result",
+        "title": "Forum: beste bakkers in Brugge",
+        "url": "https://www.forum-brugge.example/bakkers/",
+        "language": "nl",
+        "description": "Forumthreads over bakkers in Brugge."
+      }
+    ]
+  }
+}

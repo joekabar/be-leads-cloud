@@ -1,0 +1,22 @@
+{
+  "type": "search",
+  "web": {
+    "type": "search",
+    "results": [
+      {
+        "type": "search_result",
+        "title": "Acme - Uw partner voor kwaliteit",
+        "url": "https://www.acme.be/",
+        "language": "nl",
+        "description": "Acme BV is uw partner voor kwaliteitsproducten."
+      },
+      {
+        "type": "search_result",
+        "title": "Acme BV op Goudengids",
+        "url": "https://www.goudengids.be/bedrijf/Gent/G999001/AcmeBV/",
+        "language": "nl",
+        "description": "Contactgegevens Acme BV."
+      }
+    ]
+  }
+}

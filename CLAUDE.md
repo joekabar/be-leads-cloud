@@ -47,6 +47,7 @@ See `agent_docs/data-model.md` for the full schema. The schema migration ships i
 - Reading personal data into the system without per-source flags. (Out of scope for this iteration but the schema must support it later.)
 - Adding `update` or `delete` methods to `ObservationsRepo`. The repo is intentionally append-only.
 - Concurrent goudengids requests. The host's WAF penalises bursts harder than sustained low rate. Always concurrency 1.
+- Treating search-engine observations as authority. They are evidence signals (confidence 0.50–0.55), never canonical. Never write code that resolves conflicts by trusting a search hit over KBO/NBB/goudengids.
 
 ## Per-source knowledge
 Skills live under `.claude/skills/<name>/SKILL.md` and load on demand. Don't put per-source detail
@@ -58,6 +59,7 @@ in this file.
 - NBB financials rules: `.claude/skills/nbb-financials/SKILL.md` (active)
 - Goudengids / pagesdor scraping rules: `.claude/skills/goudengids-listing/SKILL.md` (active)
 - Website enrichment rules: `.claude/skills/website-analysis/SKILL.md` (active)
+- Search cross-validation rules: `.claude/skills/search-cross-validation/SKILL.md` (active)
 
 ## Polite scraping
 Default 0.5 req/s per host, exponential backoff with jitter on 429/503. Honour Retry-After. Skip on 403.

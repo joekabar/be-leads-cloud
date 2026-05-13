@@ -186,6 +186,46 @@ To query only confirmed-real companies (excluding placeholders):
 SELECT * FROM observations WHERE kbo_number NOT LIKE '9%';
 ```
 
+## Brave Search API — registration
+
+1. Go to https://api.search.brave.com/app
+2. Sign up (no credit card required for the free tier).
+3. Create a subscription: "Data for Search" → free 2k/month.
+4. Copy the subscription key.
+5. Add to `.env`:
+   ```
+   BRAVE_SEARCH_API_KEY=<key>
+   ```
+6. Verify:
+   ```
+   uv run python .claude/skills/search-cross-validation/scripts/probe_search.py "Bellock" "Antwerpen"
+   ```
+
+## Quota budgeting
+
+Free tier: 2000 queries / month ≈ 65 / day average.
+One default ingest run of 50 companies in one sector × city ≈ 50–75 Brave queries.
+That's ~25 sector-city runs per month on Brave alone. Beyond that, DDG fallback engages.
+
+## DuckDuckGo fallback
+
+No registration. Rate-limited aggressively — practical ceiling 100–200 queries per day
+before sustained blocks. Use only when Brave is exhausted or unavailable.
+
+## Cross-validation invocation
+
+```bash
+# By file (TSV: kbo<TAB>name<TAB>city)
+echo -e "0439401387\tBellock\tAntwerpen" > /tmp/cv.tsv
+uv run be-leads-search-validate --inputs /tmp/cv.tsv
+
+# From DB (placeholder KBOs from goudengids)
+uv run be-leads-search-validate --from-db --limit 50
+
+# DDG-only (no Brave key)
+uv run be-leads-search-validate --inputs /tmp/cv.tsv --engine ddg
+```
+
 ## Rotating residential IP
 
 > Coming in the enrichment source prompt.

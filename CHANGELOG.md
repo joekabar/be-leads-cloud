@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Skill: `search-cross-validation` with `engines.md`, `result-classification.md`, `query-templates.md`, and `scripts/probe_search.py`.
+- Source: `ddg_brave` — Brave Search API client (primary, 1 qps, 2k/month free) + DuckDuckGo via `ddgs` library (fallback). Per-result classifier: `official_website | directory | social | news | other`.
+- New observation field type: `cross_validation` (JSONB summary of one search query's classified results). Added to `ALLOWED_FIELDS`.
+- 8 golden fixtures in `tests/golden/ddg_brave/` (Brave JSON + DDG list responses).
+- 57 unit tests + 19 integration tests for `ddg_brave`; coverage ≥ 85% on source.
+- CLI: `uv run be-leads-search-validate --inputs <tsv>` or `--from-db --limit N`.
+- `ddgs>=9` runtime dependency.
+- `.env.example`: `BRAVE_SEARCH_API_KEY` entry.
+- Runbook: Brave registration walkthrough + quota budgeting + cross-validation invocation.
+- Updated `CLAUDE.md`: `search-cross-validation` skill reference; anti-pattern for treating search results as authoritative.
 - Skill: `website-analysis` with `selectors-heuristics.md`, `age-heuristics.md`, `extraction-priorities.md` references and `scripts/analyze_url.py`.
 - Source: `website` — fetcher, JSON-LD extractor (`structured.py`), contact-page discoverer (`contact_page.py`), person extractor — microdata + heuristic (`persons.py`), age estimator — WHOIS + footer year (`age.py`), transformer, ingester (concurrency-15 fan-out, 7-day skip window), CLI.
 - 5 golden HTML fixtures in `tests/golden/website/`: WordPress LocalBusiness, Squarespace Organization, custom-no-JSON-LD, Person microdata contact page, FR heuristic about page.

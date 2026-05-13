@@ -1,0 +1,22 @@
+{
+  "type": "search",
+  "web": {
+    "type": "search",
+    "results": [
+      {
+        "type": "search_result",
+        "title": "Mediapro - Professionele Videoproductie",
+        "url": "https://www.mediapro.com/",
+        "language": "nl",
+        "description": "Mediapro: professionele videoproductie."
+      },
+      {
+        "type": "search_result",
+        "title": "Mediapro België",
+        "url": "https://www.mediapro.be/",
+        "language": "nl",
+        "description": "Mediapro Belgium, uw lokale partner."
+      }
+    ]
+  }
+}

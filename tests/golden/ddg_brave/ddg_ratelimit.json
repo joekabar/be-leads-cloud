@@ -1,0 +1,4 @@
+{
+  "_note": "DDG RatelimitException simulation. The ddgs library raises an exception rather than returning data — there is no JSON response body. DdgClient catches ddgs.exceptions.RatelimitException, sleeps 60s, retries once, and raises DdgRateLimitedError on the second failure.",
+  "results": []
+}

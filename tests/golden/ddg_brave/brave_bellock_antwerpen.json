@@ -1,0 +1,64 @@
+{
+  "type": "search",
+  "web": {
+    "type": "search",
+    "results": [
+      {
+        "type": "search_result",
+        "title": "Bellock - Elektriciteit Antwerpen",
+        "url": "https://www.bellock.be/",
+        "language": "nl",
+        "description": "Bellock is een elektriciteitsinstallatiebedrijf gevestigd in Antwerpen."
+      },
+      {
+        "type": "search_result",
+        "title": "Bellock op Goudengids",
+        "url": "https://www.goudengids.be/bedrijf/Antwerpen/L389732/Bellock/",
+        "language": "nl",
+        "description": "Contactgegevens voor Bellock in Antwerpen."
+      },
+      {
+        "type": "search_result",
+        "title": "Bellock | Pages d'Or",
+        "url": "https://www.pagesdor.be/societe/bellock-antwerpen/",
+        "language": "fr",
+        "description": "Retrouvez les coordonnées de Bellock."
+      },
+      {
+        "type": "search_result",
+        "title": "Bellock - Kompass",
+        "url": "https://be.kompass.com/c/bellock/be4439401387/",
+        "language": "nl",
+        "description": "Bellock company profile on Kompass."
+      },
+      {
+        "type": "search_result",
+        "title": "Bellock - Facebook",
+        "url": "https://www.facebook.com/bellock.electriciteit/",
+        "language": "nl",
+        "description": "Bellock on Facebook."
+      },
+      {
+        "type": "search_result",
+        "title": "Bellock - LinkedIn",
+        "url": "https://www.linkedin.com/company/bellock/",
+        "language": "en",
+        "description": "Bellock | LinkedIn."
+      },
+      {
+        "type": "search_result",
+        "title": "Antwerpse elektriciens vergeleken",
+        "url": "https://elektriciensblog.example/antwerpen/top-10/",
+        "language": "nl",
+        "description": "Overzicht van elektriciens in Antwerpen."
+      },
+      {
+        "type": "search_result",
+        "title": "Buurt-Wikipedia: Lange Van Bloerstraat",
+        "url": "https://nl.wikipedia.org/wiki/Lange_Van_Bloerstraat",
+        "language": "nl",
+        "description": "Encyclopediabijdrage over de Lange Van Bloerstraat."
+      }
+    ]
+  }
+}

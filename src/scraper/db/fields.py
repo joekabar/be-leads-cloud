@@ -18,6 +18,7 @@ ALLOWED_FIELDS: frozenset[str] = frozenset(
         "website_age",
         "postal_code",
         "status",
+        "cross_validation",
     }
 )
 

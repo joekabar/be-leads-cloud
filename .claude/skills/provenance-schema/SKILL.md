@@ -46,6 +46,7 @@ activity_summary | website_age | postal_code | status`
 
 Financial fields follow pattern `{revenue|profit|employees}_{YYYY}` (four-digit year ≥ 1900).
 New fields require a constant added to `src/scraper/db/fields.py` and a `validate_field` update.
+`cross_validation` is a search-engine summary field emitted by the `ddg_brave` source.
 
 ## 6. Source taxonomy
 
@@ -66,6 +67,17 @@ founding_date:  {"iso": "1989-12-28"}
 nace_code:      {"code": "43.211", "version": "2008"}
 function_holder:{"name": "Boonen, Jan", "role": "bestuurder", "since": "2024-03-27"}
 revenue_2023:   {"value": 30326, "currency": "EUR", "filing_ref": "2024-00000148"}
+cross_validation: {
+    "query": "\"Bellock\" Antwerpen",
+    "engine": "brave",
+    "total_results": 8,
+    "official_websites_count": 1,
+    "directory_hits_count": 3,
+    "social_links_count": 2,
+    "news_mentions": 0,
+    "first_official_website": "https://bellock.be",
+    "snapshot_at": "2026-05-12T15:30:00+00:00"
+  }
 ```
 
 ## 9. Synthetic placeholder KBOs
