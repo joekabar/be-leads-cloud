@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (Prompt 13 — goudengids browser-throughout)
+- `goudengids` fetcher: replaced two-phase warmup+httpx pattern with a single Playwright Chromium session held open for the entire sector×city scrape. Eliminates Imperva re-challenges on httpx TLS fingerprint. User-agent is read from the installed binary at launch (no hardcoded Chrome version).
+- `goudengids` ingester: `ingest_sector_city` now manages the browser lifecycle internally via `async with fetcher:` — callers no longer call `fetcher.warm()`.
+- `goudengids` CLI and pipeline orchestrator updated to construct `BrowserListingFetcher` instead of `GoudengidsFetcher`.
+- Coverage config: `omit = ["*/archive/*"]` so archived reference code doesn't drag total coverage below threshold.
+
+### Added (Prompt 13 — goudengids browser-throughout)
+- `BrowserListingFetcher` class with `fetch_listing(url) → str` and `fetch_page(sector, city, page) → ListingPage`.
+- `is_blocked(html)` helper: detects "pardon our interruption" / "imperva" in page body and raises `BlockedError` immediately (no retry loop).
+- Old `warmup.py` and `fetcher.py` (httpx-based) archived to `src/scraper/sources/goudengids/archive/` for reference.
+- Fetcher tests rewritten with Playwright route mocking (`context.route("**/*", handler)`) — no real network traffic; 5 tests covering listing parse, no-results, FR domain, city slug hyphenation, Imperva block detection.
+
+### Changed (Prompt 12 — KBO real-scale refactor + filters)
+- `kbo_dump` ingester: bulk insert via asyncpg text-format COPY (~100x faster than per-row INSERT).
+- `kbo_dump` ingester: removed per-batch dedup SELECT — matview resolves duplicates at refresh time. Re-ingesting the same ZIP without `--truncate-first` creates duplicate rows (storage waste, ~250MB/run); data integrity is preserved by `companies_current` DISTINCT ON resolution.
+
+### Added (Prompt 12 — KBO real-scale refactor + filters)
+- `kbo_dump` CLI: `--month YYYY-MM` (auto-detected from filename), `--sector-nace`, `--city`, `--max-enterprises`, `--truncate-first`, `--yes` flags.
+- `kbo_dump` filter implementation (deferred from prompt 5): two-pass keep-set strategy across activity.csv + address.csv with AND logic for combined sector + city filters.
+- Generated 10k-row deterministic fixture (`tests/integration/sources/kbo_dump/_generate_large_fixture.py`, seed=42, cached to `tests/golden/kbo_dump/large_10k/`).
+- 5 new scale integration tests (`@pytest.mark.slow`) in `test_ingester_scale.py`.
+- Runbook section: real-ZIP manual smoke procedure.
+
 ### Added (Prompt 11 — Pipeline orchestrator + Streamlit UI)
 - Scoring engine (`src/scraper/scoring/`): `confidence.py` (per-source priors table, recency decay, consensus boost) and `ranking.py` (`LeadScore` dataclass, `compute_lead_score` — 0.5 completeness + 0.35 authority + 0.15 recency).
 - Pipeline orchestrator (`src/scraper/pipeline/orchestrator.py`): `PipelineConfig`, `PipelineReport`, `run_pipeline` — wires all 6 sources in dependency order with per-source error isolation.

@@ -229,11 +229,11 @@ async def run_pipeline(
     # ── Source 2: goudengids ───────────────────────────────────────────────
     if config.do_goudengids:
         try:
-            from scraper.sources.goudengids.fetcher import GoudengidsFetcher
+            from scraper.sources.goudengids.fetcher import BrowserListingFetcher
             from scraper.sources.goudengids.ingester import ingest_sector_city
 
             domain = "pagesdor.be" if config.lang == "fr" else "goudengids.be"
-            fetcher = GoudengidsFetcher(polite_client, domain=domain)
+            fetcher = BrowserListingFetcher(polite_client.limiter, domain=domain)
             slug = _get_goudengids_slug(config)
 
             goud_report = await ingest_sector_city(

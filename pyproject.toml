@@ -102,3 +102,4 @@ markers = [
 
 [tool.coverage.run]
 source = ["src/scraper"]
+omit = ["*/archive/*"]

@@ -5,44 +5,36 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import httpx
 import pytest
-import respx
 
 from scraper.sources.goudengids.ingester import load_valid_sectors
+from tests.integration.sources.goudengids.conftest import StubBrowserFetcher
 
 pytestmark = pytest.mark.integration
 
 _GOLDEN = Path("tests/golden/goudengids")
-_BASE = "https://www.goudengids.be"
 
 
 def _page_html(name: str) -> str:
     return (_GOLDEN / name).read_text(encoding="utf-8")
 
 
-def _make_url(sector: str, city: str, page: int) -> str:
-    return f"{_BASE}/zoeken/{sector}/{city}/{page}/"
-
-
 @pytest.mark.asyncio
 async def test_cli_valid_run_exits_0(
     clean_pool,  # type: ignore[no-untyped-def]
     test_db_dsn: str,
-    patch_warmup,  # type: ignore[no-untyped-def]
 ) -> None:
     """CLI _run with valid sector/city completes without error."""
     from scraper.sources.goudengids.cli import _run
 
-    with respx.mock:
-        respx.get(_make_url("elektriciens", "antwerpen", 1)).mock(
-            return_value=httpx.Response(
-                200, text=_page_html("listing_antwerpen_electriciens_page1.html")
-            )
-        )
-        respx.get(_make_url("elektriciens", "antwerpen", 2)).mock(
-            return_value=httpx.Response(200, text=_page_html("listing_no_results.html"))
-        )
+    stub = StubBrowserFetcher(
+        {
+            ("elektriciens", "antwerpen", 1): _page_html(
+                "listing_antwerpen_electriciens_page1.html"
+            ),
+        }
+    )
+    with patch("scraper.sources.goudengids.fetcher.BrowserListingFetcher", return_value=stub):
         await _run(
             sector_slug="elektriciens",
             city_slug="antwerpen",

@@ -82,9 +82,8 @@ async def _run(
     database_url: str,
 ) -> None:
     from scraper.db.pool import init_pool
-    from scraper.lib.http.client import get_polite_client
     from scraper.lib.http.limiter import load_from_toml
-    from scraper.sources.goudengids.fetcher import GoudengidsFetcher
+    from scraper.sources.goudengids.fetcher import BrowserListingFetcher
     from scraper.sources.goudengids.ingester import ingest_sector_city
 
     per_host_toml = (
@@ -100,17 +99,16 @@ async def _run(
     pool = await init_pool(database_url)
     try:
         limiter = load_from_toml(per_host_toml)
-        async with get_polite_client(limiter) as polite_client:
-            fetcher = GoudengidsFetcher(polite_client, domain=domain)
-            report = await ingest_sector_city(
-                sector_slug=sector_slug,
-                city_slug=city_slug,
-                pool=pool,
-                fetcher=fetcher,
-                max_pages=max_pages,
-                lang=lang,  # type: ignore[arg-type]
-                skip_recent_hours=skip_recent_hours,
-            )
+        fetcher = BrowserListingFetcher(limiter, domain=domain)
+        report = await ingest_sector_city(
+            sector_slug=sector_slug,
+            city_slug=city_slug,
+            pool=pool,
+            fetcher=fetcher,
+            max_pages=max_pages,
+            lang=lang,  # type: ignore[arg-type]
+            skip_recent_hours=skip_recent_hours,
+        )
     finally:
         await pool.close()
 

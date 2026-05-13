@@ -28,10 +28,13 @@ async def test_ingest_full_zip_observation_count(synthetic_zip: Path, fresh_pool
     assert report.phones_invalid_skipped == 1
 
 
-async def test_ingest_idempotent(synthetic_zip: Path, fresh_pool) -> None:
-    await ingest_zip(synthetic_zip, fresh_pool, refresh_view=False)
+async def test_reingest_without_truncate_creates_duplicates(
+    synthetic_zip: Path, fresh_pool
+) -> None:
+    """Without truncate_first, re-ingest inserts duplicate rows; dedup is at matview refresh."""
+    report1 = await ingest_zip(synthetic_zip, fresh_pool, refresh_view=False)
     report2 = await ingest_zip(synthetic_zip, fresh_pool, refresh_view=False)
-    assert report2.observations_inserted == 0
+    assert report2.observations_inserted == report1.observations_inserted
 
 
 async def test_ingest_companies_current_bellock(synthetic_zip: Path, fresh_pool) -> None:
@@ -137,11 +140,12 @@ async def test_ingest_sector_filter(synthetic_zip: Path, fresh_pool) -> None:
     assert report.enterprises_processed == 1
 
 
+@pytest.mark.slow
 async def test_ingest_large_zip_200_plus_observations(large_zip: Path, fresh_pool) -> None:
-    """Acceptance criterion: 50-enterprise ZIP produces ≥200 observations."""
+    """10k-enterprise fixture produces ≥30k observations."""
     report = await ingest_zip(large_zip, fresh_pool, refresh_view=False)
-    assert report.enterprises_processed == 50
-    assert report.observations_inserted >= 200
+    assert report.enterprises_processed == 10_000
+    assert report.observations_inserted >= 30_000
 
 
 async def test_ingest_city_filter(synthetic_zip: Path, fresh_pool) -> None:

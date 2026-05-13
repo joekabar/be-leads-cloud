@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 _SECTORS_TOML = (
-    Path(__file__).parents[5]
+    Path(__file__).parents[4]
     / ".claude"
     / "skills"
     / "goudengids-listing"

@@ -1,24 +1,33 @@
-"""httpx-based listing-page fetcher for goudengids.be / pagesdor.be.
+"""Playwright-based listing-page fetcher for goudengids.be / pagesdor.be.
 
-Wraps PoliteClient with Imperva cookie management. On 403 (WAF block), attempts
-exactly one cookie re-warm then retries. A second consecutive 403 raises BlockedError.
+Uses a single Chromium browser context for the entire scrape session so Imperva
+session cookies are preserved across all page navigations. The old two-phase
+warmup+httpx approach is archived in archive/fetcher_httpx.py.
 """
 
 from __future__ import annotations
 
+import asyncio
+import random
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 import structlog
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright
 
 from scraper.lib.errors import BlockedError
 from scraper.sources.goudengids.parser import is_empty_results_page, parse_listing_page
-from scraper.sources.goudengids.warmup import WarmupResult, is_expired, warmup_cookies
 
 if TYPE_CHECKING:
-    from scraper.lib.http.client import PoliteClient
+    from playwright.async_api import Browser, BrowserContext, Playwright
+
+    from scraper.lib.http.limiter import HostLimiter
 
 logger = structlog.get_logger()
+
+_LISTING_SELECTOR = "li[data-small-result]"
+_BLOCKED_PHRASES = ("pardon our interruption", "imperva")
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,22 +46,86 @@ def _build_url(domain: str, sector_slug: str, city_slug: str, page: int, lang: s
     return f"https://www.{domain}/zoeken/{sector}/{city}/{page}/"
 
 
-class GoudengidsFetcher:
-    """httpx session pre-loaded with warmup cookies. Auto-refreshes cookies on 403."""
+def is_blocked(html: str) -> bool:
+    lower = html.lower()
+    return any(phrase in lower for phrase in _BLOCKED_PHRASES)
 
-    def __init__(self, polite_client: PoliteClient, domain: str = "goudengids.be") -> None:
-        self._client = polite_client
+
+class BrowserListingFetcher:
+    """Single Playwright Chromium session for goudengids listing pages.
+
+    Use as an async context manager — opens the browser on enter, closes on exit:
+
+        async with BrowserListingFetcher(limiter) as fetcher:
+            html = await fetcher.fetch_listing(url)
+    """
+
+    def __init__(self, limiter: HostLimiter, domain: str = "goudengids.be") -> None:
+        self._limiter = limiter
         self._domain = domain
-        self._warmup_result: WarmupResult | None = None
+        self._pw: Playwright | None = None
+        self._browser: Browser | None = None
+        self._context: BrowserContext | None = None
 
-    async def warm(self) -> None:
-        """Initial cookie warmup. Must be called before fetch_page, or called automatically."""
-        result = await warmup_cookies(self._domain)
-        self._warmup_result = result
-        logger.bind(domain=self._domain).info(
-            "goudengids_warmup_complete",
-            cookie_count=len(result.cookies),
+    async def __aenter__(self) -> BrowserListingFetcher:
+        self._pw = await async_playwright().start()
+        self._browser = await self._pw.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled"],
         )
+        # Read the UA the installed Chromium binary sends — avoids hardcoding a version.
+        _temp = await self._browser.new_context()
+        _temp_page = await _temp.new_page()
+        user_agent: str = await _temp_page.evaluate("navigator.userAgent")
+        await _temp.close()
+
+        self._context = await self._browser.new_context(
+            user_agent=user_agent,
+            locale="nl-BE",
+            viewport={"width": 1280, "height": 720},
+        )
+        await self._context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
+        logger.debug("goudengids_browser_started", domain=self._domain, user_agent=user_agent)
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        if self._browser is not None:
+            await self._browser.close()
+        if self._pw is not None:
+            await self._pw.stop()
+        self._browser = None
+        self._pw = None
+        self._context = None
+
+    async def fetch_listing(self, url: str) -> str:
+        """Navigate to url and return the page HTML.
+
+        Raises BlockedError immediately on Imperva detection — do not retry.
+        """
+        if self._context is None:
+            raise RuntimeError("BrowserListingFetcher must be used as an async context manager")
+
+        await self._limiter.acquire(self._domain)
+        await asyncio.sleep(random.uniform(1.5, 3.0))
+
+        page = await self._context.new_page()
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+            try:
+                await page.wait_for_selector(_LISTING_SELECTOR, timeout=20_000)
+            except PlaywrightTimeoutError:
+                pass  # empty-result pages have no listing cards
+            html: str = await page.content()
+        finally:
+            await page.close()
+
+        if is_blocked(html):
+            logger.error("goudengids_imperva_block", url=url)
+            raise BlockedError(403, url, "Imperva block detected in page HTML")
+
+        return html
 
     async def fetch_page(
         self,
@@ -62,34 +135,9 @@ class GoudengidsFetcher:
         *,
         lang: Literal["nl", "fr"] = "nl",
     ) -> ListingPage:
-        """Fetch one listing page. Auto-refreshes cookies if expired or on first 403.
-
-        Raises BlockedError on second consecutive 403 (WAF is actively blocking).
-        """
-        if self._warmup_result is None or is_expired(self._warmup_result):
-            await self.warm()
-
-        warmup = self._warmup_result
-        if warmup is None:
-            raise BlockedError(0, "", "warm() did not produce a WarmupResult")
-
+        """Fetch and parse one listing page."""
         url = _build_url(self._domain, sector_slug, city_slug, page, lang)
-
-        def _cookie_header(c: dict[str, str]) -> dict[str, str]:
-            return {"Cookie": "; ".join(f"{k}={v}" for k, v in c.items())} if c else {}
-
-        try:
-            response = await self._client.get(url, headers=_cookie_header(warmup.cookies))
-        except BlockedError:
-            logger.warning("goudengids_403_rewarm", url=url)
-            await self.warm()
-            warmup = self._warmup_result
-            if warmup is None:
-                raise BlockedError(403, url, "re-warm did not produce cookies") from None
-            # Second BlockedError propagates to the caller.
-            response = await self._client.get(url, headers=_cookie_header(warmup.cookies))
-
-        html = response.text
+        html = await self.fetch_listing(url)
         cards = parse_listing_page(html, domain=self._domain)
         is_last = is_empty_results_page(html) or len(cards) == 0
         return ListingPage(url=url, html=html, cards_found=len(cards), is_last_page=is_last)

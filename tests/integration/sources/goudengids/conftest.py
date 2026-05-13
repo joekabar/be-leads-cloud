@@ -2,24 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
+from typing import Literal
 
 import pytest
 
-from scraper.lib.http.client import get_polite_client
 from scraper.lib.http.limiter import HostConfig, HostLimiter
-from scraper.sources.goudengids.fetcher import GoudengidsFetcher
-from scraper.sources.goudengids.warmup import WarmupResult
+from scraper.sources.goudengids.fetcher import ListingPage, _build_url
+from scraper.sources.goudengids.parser import is_empty_results_page, parse_listing_page
 
 _GOLDEN = Path("tests/golden/goudengids")
 
-_FAKE_WARMUP_RESULT = WarmupResult(
-    cookies={"incap_ses_test": "test_value", "visid_incap_test": "test_vis"},
-    obtained_at=datetime.now(tz=UTC),
-    ttl_minutes=25,
-)
+
+def _page_html(name: str) -> str:
+    return (_GOLDEN / name).read_text(encoding="utf-8")
 
 
 def make_fast_limiter() -> HostLimiter:
@@ -27,28 +23,41 @@ def make_fast_limiter() -> HostLimiter:
     return HostLimiter(configs={}, default=fast)
 
 
-async def _noop_warmup(domain: str = "goudengids.be", *, timeout_s: float = 30.0) -> WarmupResult:
-    return _FAKE_WARMUP_RESULT
-
-
 @pytest.fixture()
 def fast_limiter() -> HostLimiter:
     return make_fast_limiter()
 
 
-@pytest.fixture()
-def patch_warmup():  # type: ignore[no-untyped-def]
-    """Patch warmup_cookies in both warmup and fetcher modules to skip Playwright."""
-    with (
-        patch("scraper.sources.goudengids.warmup.warmup_cookies", _noop_warmup),
-        patch("scraper.sources.goudengids.fetcher.warmup_cookies", _noop_warmup),
-    ):
-        yield
+class StubBrowserFetcher:
+    """Stub BrowserListingFetcher for ingester/CLI tests — no real browser launched."""
 
+    _domain = "goudengids.be"
 
-@pytest.fixture()
-async def goudengids_fetcher(fast_limiter: HostLimiter, patch_warmup):  # type: ignore[no-untyped-def]
-    async with get_polite_client(fast_limiter) as polite_client:
-        fetcher = GoudengidsFetcher(polite_client, domain="goudengids.be")
-        fetcher._warmup_result = _FAKE_WARMUP_RESULT
-        yield fetcher
+    def __init__(self, page_responses: dict[tuple[str, str, int], str] | None = None) -> None:
+        self._pages: dict[tuple[str, str, int], str] = page_responses or {}
+
+    async def __aenter__(self) -> StubBrowserFetcher:
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        pass
+
+    async def fetch_page(
+        self,
+        sector_slug: str,
+        city_slug: str,
+        page: int,
+        *,
+        lang: Literal["nl", "fr"] = "nl",
+    ) -> ListingPage:
+        html = self._pages.get(
+            (sector_slug, city_slug, page), _page_html("listing_no_results.html")
+        )
+        cards = parse_listing_page(html, domain=self._domain)
+        is_last = is_empty_results_page(html) or len(cards) == 0
+        return ListingPage(
+            url=_build_url(self._domain, sector_slug, city_slug, page, lang),
+            html=html,
+            cards_found=len(cards),
+            is_last_page=is_last,
+        )

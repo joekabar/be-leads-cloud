@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     import asyncpg
 
     from scraper.db.models import Observation
-    from scraper.sources.goudengids.fetcher import GoudengidsFetcher
+    from scraper.sources.goudengids.fetcher import BrowserListingFetcher
 
 logger = structlog.get_logger()
 
@@ -76,7 +76,7 @@ async def ingest_sector_city(
     sector_slug: str,
     city_slug: str,
     pool: asyncpg.Pool,
-    fetcher: GoudengidsFetcher,
+    fetcher: BrowserListingFetcher,
     *,
     max_pages: int = 25,
     lang: Literal["nl", "fr"] = "nl",
@@ -121,54 +121,53 @@ async def ingest_sector_city(
         cutoff = snapshot_at - timedelta(hours=skip_recent_hours)
         recent_kbos = await _recent_placeholder_kbos(pool, cutoff)
 
-    await fetcher.warm()
-
     buffer: list[Observation] = []
     seen_placeholders: set[str] = set()
 
     try:
-        for page_num in range(1, max_pages + 1):
-            try:
-                listing = await fetcher.fetch_page(sector_slug, city_slug, page_num, lang=lang)
-            except BlockedError:
-                log.error("goudengids_blocked_aborting", page=page_num)
-                break
+        async with fetcher:
+            for page_num in range(1, max_pages + 1):
+                try:
+                    listing = await fetcher.fetch_page(sector_slug, city_slug, page_num, lang=lang)
+                except BlockedError:
+                    log.error("goudengids_blocked_aborting", page=page_num)
+                    break
 
-            report.pages_scanned += 1
+                report.pages_scanned += 1
 
-            if listing.is_last_page:
-                break
+                if listing.is_last_page:
+                    break
 
-            cards = parse_listing_page(listing.html, domain=fetcher._domain)
-            report.cards_found += len(cards)
+                cards = parse_listing_page(listing.html, domain=fetcher._domain)
+                report.cards_found += len(cards)
 
-            for card in cards:
-                placeholder = make_placeholder_kbo(card.name, card.address_postal_code)
+                for card in cards:
+                    placeholder = make_placeholder_kbo(card.name, card.address_postal_code)
 
-                if placeholder in recent_kbos:
-                    continue
+                    if placeholder in recent_kbos:
+                        continue
 
-                if card.phones:
-                    report.cards_with_phone += 1
-                if card.website:
-                    report.cards_with_website += 1
+                    if card.phones:
+                        report.cards_with_phone += 1
+                    if card.website:
+                        report.cards_with_website += 1
 
-                obs = card_to_observations(card, run_id, snapshot_at)
-                buffer.extend(obs)
+                    obs = card_to_observations(card, run_id, snapshot_at)
+                    buffer.extend(obs)
 
-                if placeholder not in seen_placeholders:
-                    seen_placeholders.add(placeholder)
-                    report.placeholders_created += 1
+                    if placeholder not in seen_placeholders:
+                        seen_placeholders.add(placeholder)
+                        report.placeholders_created += 1
 
-                if len(buffer) >= _BATCH_SIZE:
-                    ids = await obs_repo.insert_many(buffer)
-                    report.observations_inserted += len(ids)
-                    buffer.clear()
+                    if len(buffer) >= _BATCH_SIZE:
+                        ids = await obs_repo.insert_many(buffer)
+                        report.observations_inserted += len(ids)
+                        buffer.clear()
 
-        if buffer:
-            ids = await obs_repo.insert_many(buffer)
-            report.observations_inserted += len(ids)
-            buffer.clear()
+            if buffer:
+                ids = await obs_repo.insert_many(buffer)
+                report.observations_inserted += len(ids)
+                buffer.clear()
 
     finally:
         await pool.execute("SELECT refresh_companies_current()")

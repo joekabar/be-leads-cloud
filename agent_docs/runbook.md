@@ -351,6 +351,40 @@ psql $DATABASE_URL -c "
 Should return ≥ 6 distinct fields (name, address, phone, website, founding_date, nace_code,
 function_holder, revenue_*).
 
+## Real KBO Open Data ZIP — manual smoke
+
+### Download (one-time per month)
+1. Log in to https://kbopub.economie.fgov.be/kbo-open-data/login (account joekabar).
+2. Download the latest "Aansluiting KBO Open Data Bestand" Full ZIP — refreshed first Sunday of each month.
+3. Place at `data/kbo_dump/KboOpenData_<n>_<YYYY>_<MM>_Full.zip`.
+   Filename pattern is what the portal gives you; do not rename.
+
+### Full ingest (~30 min)
+```
+uv run be-leads-ingest-kbo --zip data/kbo_dump/KboOpenData_*_Full.zip
+```
+
+Expected: ~2M enterprises, ~10M observations, ~1.2GB Postgres growth on first run.
+Subsequent monthly Full re-ingests without `--truncate-first` add another ~1.2GB each.
+Use `--truncate-first --yes` if storage is a concern.
+
+### Filtered ingest (~30 sec for one city + one sector)
+```
+uv run be-leads-ingest-kbo \
+    --zip data/kbo_dump/KboOpenData_*_Full.zip \
+    --sector-nace 43 \
+    --city Antwerpen \
+    --truncate-first --yes
+```
+
+### Eyeball verification (Bellock)
+```
+docker compose exec pg psql -U leads -d leads \
+    -c "SELECT field, value FROM companies_current WHERE kbo_number='0439401387' ORDER BY field;"
+```
+
+Expect ≥3 rows: at minimum `founding_date` (1989-12-28), `name` (BELLOCK NV), `address`.
+
 ## Spec deviations from initial prompts
    - Prompt 2 (polite-scraping): no runtime robots.txt checking. Project is testing-only.
-   - Prompt 2: kbopub used for KBO number lookups too, not just function holders.2
+   - Prompt 2: kbopub used for KBO number lookups too, not just function holders.

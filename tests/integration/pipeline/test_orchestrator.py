@@ -97,27 +97,32 @@ async def test_source_order_in_report(clean_pool, pipeline_synthetic_zip) -> Non
                     return_value=(pipeline_synthetic_zip, Path("/tmp/fake"))
                 ),
             },
-        ), patch(
-        "scraper.sources.kbo_dump.ingester.ingest_zip", new=AsyncMock(return_value=fake_kbo)
-    ), patch(
-        "scraper.sources.goudengids.ingester.ingest_sector_city",
-        new=AsyncMock(return_value=FakeGoudReport()),
-    ), patch(
-        "scraper.sources.goudengids.fetcher.GoudengidsFetcher",
-        return_value=MagicMock(),
-    ), patch(
-        "scraper.sources.kbopub_html.ingester.ingest_kbos",
-        new=AsyncMock(return_value=FakeKbopubReport()),
-    ), patch(
-        "scraper.sources.website.ingester.ingest_kbos",
-        new=AsyncMock(return_value=FakeWebReport()),
-    ), patch(
-        "scraper.sources.ddg_brave.ingester.validate_companies",
-        new=AsyncMock(return_value=FakeSearchReport()),
-    ), patch(
-        "scraper.pipeline.consolidate.consolidate",
-        new=AsyncMock(return_value=[]),
-    )
+        ),
+        patch("scraper.sources.kbo_dump.ingester.ingest_zip", new=AsyncMock(return_value=fake_kbo)),
+        patch(
+            "scraper.sources.goudengids.ingester.ingest_sector_city",
+            new=AsyncMock(return_value=FakeGoudReport()),
+        ),
+        patch(
+            "scraper.sources.goudengids.fetcher.BrowserListingFetcher",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "scraper.sources.kbopub_html.ingester.ingest_kbos",
+            new=AsyncMock(return_value=FakeKbopubReport()),
+        ),
+        patch(
+            "scraper.sources.website.ingester.ingest_kbos",
+            new=AsyncMock(return_value=FakeWebReport()),
+        ),
+        patch(
+            "scraper.sources.ddg_brave.ingester.validate_companies",
+            new=AsyncMock(return_value=FakeSearchReport()),
+        ),
+        patch(
+            "scraper.pipeline.consolidate.consolidate",
+            new=AsyncMock(return_value=[]),
+        ),
     ):
         report = await run_pipeline(config, clean_pool, polite)
 
@@ -143,16 +148,21 @@ async def test_one_source_failure_does_not_abort_pipeline(
     polite = _mock_polite_client()
     fake_kbo = _FakeKboDumpReport()
 
-    with patch.multiple(
-        "scraper.pipeline.orchestrator",
-        **{"_create_fixture_zip": MagicMock(return_value=(pipeline_synthetic_zip, Path("/tmp/x")))},
-    ), patch(
-        "scraper.sources.kbo_dump.ingester.ingest_zip", new=AsyncMock(return_value=fake_kbo)
-    ), patch(
-        "scraper.sources.goudengids.fetcher.GoudengidsFetcher",
-        side_effect=RuntimeError("goudengids boom"),
-    ), patch(
-        "scraper.pipeline.consolidate.consolidate", new=AsyncMock(return_value=[])
+    with (
+        patch.multiple(
+            "scraper.pipeline.orchestrator",
+            **{
+                "_create_fixture_zip": MagicMock(
+                    return_value=(pipeline_synthetic_zip, Path("/tmp/x"))
+                )
+            },
+        ),
+        patch("scraper.sources.kbo_dump.ingester.ingest_zip", new=AsyncMock(return_value=fake_kbo)),
+        patch(
+            "scraper.sources.goudengids.fetcher.BrowserListingFetcher",
+            side_effect=RuntimeError("goudengids boom"),
+        ),
+        patch("scraper.pipeline.consolidate.consolidate", new=AsyncMock(return_value=[])),
     ):
         report = await run_pipeline(config, clean_pool, polite)
 
