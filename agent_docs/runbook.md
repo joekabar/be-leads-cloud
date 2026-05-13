@@ -266,6 +266,91 @@ Refresh BIPT prefixes (quarterly):
 3. Run: `uv run pytest tests/unit/lib/validators/ -q`
 4. Commit with message: `data: refresh BIPT prefix table (YYYY-MM)`
 
+## End-to-end pipeline
+
+The `be-leads-pipeline` CLI runs all six sources in order, consolidates placeholder KBOs,
+refreshes the `companies_current` view, and prints a JSON report to stdout.
+
+### Quick start
+
+```bash
+# Electricians in Antwerp, all sources
+uv run be-leads-pipeline --sector electriciens --city antwerpen
+
+# French, pages limited, skip NBB and search
+uv run be-leads-pipeline \
+  --sector electriciens --city liege --lang fr \
+  --max-pages 3 --skip-nbb --skip-search
+
+# Synthetic fixture (no live sources, useful for testing)
+uv run be-leads-pipeline --sector electriciens --city antwerpen --use-fixture
+```
+
+### Environment variables required
+
+| Variable | Source |
+|---|---|
+| `DATABASE_URL` | asyncpg pool URL (`postgresql://...`) |
+| `BRAVE_SEARCH_API_KEY` | Brave API (optional; DDG fallback if absent) |
+| `NBB_CBSO_API_KEY` | NBB portal (optional; NBB source skipped if absent) |
+
+### Source execution order
+
+1. `kbo_dump` — bulk KBO data (NACE + city filter applied here)
+2. `goudengids` — listing discovery (placeholder KBOs emitted)
+3. `kbopub_html` — function holder enrichment for real KBOs
+4. `nbb_authentic` — financial observations
+5. `website` — contact page + structured data enrichment
+6. `ddg_brave` — cross-validation of placeholder KBOs
+7. **Consolidation** — placeholder → real KBO fuzzy matching (rapidfuzz)
+8. **`REFRESH MATERIALIZED VIEW companies_current`**
+
+Per-source failures are isolated: a source that raises an exception is logged and skipped;
+the pipeline continues and reports it in `sources_failed`.
+
+### JSON report (stdout)
+
+```json
+{
+  "sector": "electriciens",
+  "city": "antwerpen",
+  "sources_run": 6,
+  "sources_skipped": 0,
+  "sources_failed": {},
+  "observations_inserted_per_source": {"kbo_dump": 412, "goudengids": 210, ...},
+  "placeholders_created": 98,
+  "placeholders_resolved": 71,
+  "companies_in_view": 340,
+  "duration_s": 127.4
+}
+```
+
+### Streamlit UI
+
+```bash
+uv run streamlit run src/scraper/ui/app.py
+```
+
+Opens at `http://localhost:8501`. Configure sector, city, language, page count, and source
+toggles in the sidebar; click **Run pipeline**. Results are scored (lead score = 0.5 ×
+completeness + 0.35 × authority + 0.15 × recency) and sortable. A CSV download button
+appears below the results table.
+
+### Verifying a specific company (Bellock example)
+
+```bash
+# After a pipeline run:
+psql $DATABASE_URL -c "
+  SELECT field, value, source, confidence
+  FROM companies_current
+  WHERE kbo_number = '0439401387'
+  ORDER BY field;
+"
+```
+
+Should return ≥ 6 distinct fields (name, address, phone, website, founding_date, nace_code,
+function_holder, revenue_*).
+
 ## Spec deviations from initial prompts
    - Prompt 2 (polite-scraping): no runtime robots.txt checking. Project is testing-only.
    - Prompt 2: kbopub used for KBO number lookups too, not just function holders.2

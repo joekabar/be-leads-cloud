@@ -76,6 +76,7 @@ The postgres MCP server (`.mcp.json`) uses this variable. Example:
 - Tests: `uv run pytest` or `uv run pytest -m "not network"`
 - Lint: `uv run ruff check . && uv run ruff format --check .`
 - Type check: `uv run mypy src/scraper`
+- Pipeline CLI: `uv run be-leads-pipeline --sector electriciens --city antwerpen`
 - App: `uv run streamlit run src/scraper/ui/app.py`
 
 ## Definition of done (every change)

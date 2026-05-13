@@ -75,6 +75,10 @@ class PoliteClient:
                 **kwargs,
             )
 
+    @property
+    def limiter(self) -> HostLimiter:
+        return self._limiter
+
     async def get(self, url: str, **kwargs: Any) -> httpx.Response:
         return await self._request("GET", url, **kwargs)
 

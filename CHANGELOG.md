@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Prompt 11 — Pipeline orchestrator + Streamlit UI)
+- Scoring engine (`src/scraper/scoring/`): `confidence.py` (per-source priors table, recency decay, consensus boost) and `ranking.py` (`LeadScore` dataclass, `compute_lead_score` — 0.5 completeness + 0.35 authority + 0.15 recency).
+- Pipeline orchestrator (`src/scraper/pipeline/orchestrator.py`): `PipelineConfig`, `PipelineReport`, `run_pipeline` — wires all 6 sources in dependency order with per-source error isolation.
+- Consolidation pass (`src/scraper/pipeline/consolidate.py`): three-pass rapidfuzz name matching (name+postal → name+city → name_only ≥ 90); re-emits placeholder observations under real KBO with confidence × 0.9 inference penalty.
+- Pipeline runner (`src/scraper/pipeline/run.py`): loads settings, initialises pool + PoliteClient, calls `run_pipeline`, closes resources.
+- CLI entry point `be-leads-pipeline` (`src/scraper/pipeline/cli.py`): `--sector`, `--city`, `--max-pages`, `--lang`, `--use-fixture`, `--skip-*` flags, JSON output.
+- Streamlit UI (`src/scraper/ui/`): `app.py` (sector × city picker, source toggles, run button, results table), `data.py` (`fetch_results_for_run` with NACE + city filtering), `components/pickers.py`, `components/results_table.py`, `components/progress.py`.
+- Integration tests: consolidation integration (3), orchestrator with mocked ingesters (3), end-to-end smoke (2 in-process + 1 subprocess CLI).
+- Unit tests: scoring confidence (33), scoring ranking (8), consolidation unit (9), UI data helpers (16 including 5 mocked async fetch tests), pipeline CLI unit (7). 609 total passing.
+- `rapidfuzz>=3.9` and `pandas>=2.2` added to runtime dependencies.
+- Mypy overrides added for `rapidfuzz`, `streamlit`, `pandas` (no public stubs).
+
 ### Added
 - Skill: `search-cross-validation` with `engines.md`, `result-classification.md`, `query-templates.md`, and `scripts/probe_search.py`.
 - Source: `ddg_brave` — Brave Search API client (primary, 1 qps, 2k/month free) + DuckDuckGo via `ddgs` library (fallback). Per-result classifier: `official_website | directory | social | news | other`.

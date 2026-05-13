@@ -17,6 +17,8 @@ dependencies = [
     "python-dotenv>=1.0",
     "python-whois>=0.9.5",
     "ddgs>=9",
+    "rapidfuzz>=3.9",
+    "pandas>=2.2",
 ]
 
 [dependency-groups]
@@ -42,6 +44,7 @@ be-leads-fetch-nbb = "scraper.sources.nbb_authentic.cli:cli_main"
 be-leads-discover-goudengids = "scraper.sources.goudengids.cli:cli_main"
 be-leads-enrich-website = "scraper.sources.website.cli:cli_main"
 be-leads-search-validate = "scraper.sources.ddg_brave.cli:cli_main"
+be-leads-pipeline = "scraper.pipeline.cli:cli_main"
 
 [build-system]
 requires = ["hatchling"]
@@ -73,6 +76,18 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["ddgs", "ddgs.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["rapidfuzz", "rapidfuzz.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["streamlit", "streamlit.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pandas", "pandas.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

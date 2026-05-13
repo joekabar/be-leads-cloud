@@ -31,12 +31,24 @@ Never `REFRESH MATERIALIZED VIEW` inside a repository method; that belongs in `p
 
 ## 4. Confidence scoring
 
-Per-source priors are in `references/confidence.md`. Two adjustments applied after the prior:
-- **Recency decay:** `confidence * (0.99 ** days_since_observation)` clamped to `[0.30, 1.00]`
-- **Consensus boost:** `min(1.0, base * 1.1)` per matching observation from a *different* source
-  for the same `(kbo_number, field, value)`
+Per-source priors live in `src/scraper/scoring/confidence.py` (`_PRIORS_TABLE`).
+Two adjustments are applied after the prior:
 
-Apply these in `src/scraper/scoring/` (added in a later prompt), not in the repository layer.
+- **Recency decay:** `base * (0.99 ** days_since_observation)` clamped to `[0.30, 1.00]`
+  — implemented as `apply_recency_decay(base, observed_at, now, config)`
+- **Consensus boost:** `min(1.0, base * 1.10 ** (n_agreeing_sources - 1))`
+  — implemented as `apply_consensus_boost(raw, n_agreeing, config)`
+
+Lead scoring in `src/scraper/scoring/ranking.py`:
+```
+overall = 0.5 * completeness + 0.35 * authority + 0.15 * recency
+```
+where `completeness` = fraction of HIGH_VALUE_FIELDS populated, `authority` = mean
+recency-decayed prior over those fields, `recency` = `max(0, 1 - mean_days / 90)`.
+
+**Consolidation confidence penalty:** when `consolidate()` re-emits a placeholder
+observation under the matched real KBO, confidence is multiplied by 0.9 to mark it as
+inferred rather than directly observed. The original placeholder observations are kept.
 
 ## 5. What "field" means
 
