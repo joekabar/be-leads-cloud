@@ -27,6 +27,7 @@ class NbbClient:
         return {
             "NBB-CBSO-Subscription-Key": self._subscription_key,
             "X-Request-Id": str(uuid.uuid4()),
+            "Accept": "application/json",
         }
 
     async def get_references(self, kbo_number: str) -> list[ReferenceRow]:

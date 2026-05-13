@@ -30,6 +30,8 @@ def main() -> None:
     headers = {
         "NBB-CBSO-Subscription-Key": key,
         "X-Request-Id": str(uuid.uuid4()),
+        "Accept": "application/json",
+        "Accept": "application/json",
     }
 
     print(f"GET {url}", file=sys.stderr)
