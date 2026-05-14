@@ -239,6 +239,46 @@ def test_empty_functies_section_returns_empty_list() -> None:
 # _parse_since edge cases (lines 128, 132-133, 135-136, 139-140)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# parse_function_holders — large-company hidden-table layout
+# ---------------------------------------------------------------------------
+
+
+def test_many_holders_all_extracted() -> None:
+    """Hidden <table id="toonfctie"> yields all 4 function holders."""
+    rows = parse_function_holders(_read("0500000001_many_holders.html"))
+    assert len(rows) == 4
+
+
+def test_many_holders_roles() -> None:
+    rows = parse_function_holders(_read("0500000001_many_holders.html"))
+    canonicals = [r.role_canonical for r in rows]
+    assert canonicals.count("director") == 2
+    assert "permanent_representative" in canonicals
+
+
+def test_many_holders_legal_person_standalone_dotted_kbo() -> None:
+    """Corporate director identified by standalone dotted KBO '0405.117.332'."""
+    rows = parse_function_holders(_read("0500000001_many_holders.html"))
+    corp_director = next(r for r in rows if r.role_canonical == "director" and r.is_legal_person)
+    assert corp_director.linked_kbo == "0405117332"
+
+
+def test_many_holders_parenthesised_dotted_kbo() -> None:
+    """Permanent representative with parenthesised '(0405.117.332)' linked KBO."""
+    rows = parse_function_holders(_read("0500000001_many_holders.html"))
+    perm_rep = next(r for r in rows if r.role_canonical == "permanent_representative")
+    assert perm_rep.linked_kbo == "0405117332"
+    assert perm_rep.is_legal_person is True
+
+
+def test_many_holders_no_unknown_role_warnings(capsys: pytest.CaptureFixture[str]) -> None:
+    """Hidden-table layout must not log unknown_role_label for any row."""
+    parse_function_holders(_read("0500000001_many_holders.html"))
+    captured = capsys.readouterr()
+    assert "unknown_role_label" not in captured.out
+
+
 # Import for direct testing of the private helper.
 from scraper.sources.kbopub_html.parser import _parse_since  # noqa: E402
 

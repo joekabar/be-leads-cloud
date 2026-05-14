@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head><meta charset="UTF-8"><title>Test — many holders</title></head>
+<body>
+<h1>Gegevens van de geregistreerde entiteit</h1>
+<table>
+  <tr><td class="I" colspan="4"><h2>Algemeen</h2></td></tr>
+  <tr><td class="QL">Status</td><td class="QL">Actief</td><td></td></tr>
+
+  <tr><td class="I" colspan="4"><h2>Functies</h2></td></tr>
+  <!-- "Toon functiehouders" link row — 1 TD, should be skipped -->
+  <tr>
+    <td class="QL" colspan="3">
+      <span id="klikfctie">Er zijn 4 functiehouders. <a href="#null" onclick="return butFunct_onclick('toon')">Toon de functiehouders</a>.</span>
+      <span style="display: none" id="verbergfctie">Er zijn 4 functiehouders. <a href="#null">Verberg</a>.</span>
+    </td>
+  </tr>
+  <!-- Hidden holder table row — the actual data, parsed directly from raw HTML -->
+  <tr>
+    <td colspan="3">
+      <table style="display: none" id="toonfctie" cellspacing="0" cellpadding="7" width="100%">
+        <tr>
+          <td class="RL">Bestuurder</td>
+          <td class="RL"><a href="toonondernemingps.html?ondernemingsnummer=405117332">0405.117.332</a>&nbsp;&nbsp;</td>
+          <td class="RL"><span class="upd">Sinds 20 december 2018</span></td>
+        </tr>
+        <tr>
+          <td class="QL">Bestuurder</td>
+          <td class="QL">Duquenne ,&nbsp; Eddy&nbsp;</td>
+          <td class="QL"><span class="upd">Sinds 18 december 2007</span></td>
+        </tr>
+        <tr>
+          <td class="RL">Vaste vertegenwoordiger</td>
+          <td class="RL">
+            Bert ,&nbsp; Joost&nbsp;
+            <a href="toonondernemingps.html?ondernemingsnummer=405117332">(0405.117.332)</a>&nbsp;&nbsp;
+          </td>
+          <td class="RL"><span class="upd">Sinds 20 december 2018</span></td>
+        </tr>
+        <tr>
+          <td class="QL">Persoon belast met dagelijks bestuur</td>
+          <td class="QL">Duquenne ,&nbsp; Eddy&nbsp;</td>
+          <td class="QL"><span class="upd">Sinds 1 januari 2008</span></td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr><td colspan="3">&nbsp;<br/>&nbsp;</td></tr>
+
+  <tr><td class="I" colspan="4"><h2>Activiteiten</h2></td></tr>
+</table>
+</body>
+</html>

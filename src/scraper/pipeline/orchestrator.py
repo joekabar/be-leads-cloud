@@ -128,30 +128,39 @@ async def _count_companies_in_view(pool: asyncpg.Pool) -> int:
     return int(row["n"]) if row else 0
 
 
-async def _get_real_kbos(pool: asyncpg.Pool) -> list[str]:
+async def _get_real_kbos(pool: asyncpg.Pool, since: datetime) -> list[str]:
+    """Return non-placeholder KBOs first observed on or after *since* (current pipeline run)."""
     rows = await pool.fetch(
-        "SELECT DISTINCT kbo_number FROM observations WHERE kbo_number NOT LIKE '9%'"
+        "SELECT DISTINCT kbo_number FROM observations "
+        "WHERE kbo_number NOT LIKE '9%' AND observed_at >= $1",
+        since,
     )
     return [str(r["kbo_number"]).strip() for r in rows]
 
 
-async def _get_website_pairs(pool: asyncpg.Pool) -> list[tuple[str, str]]:
+async def _get_website_pairs(pool: asyncpg.Pool, since: datetime) -> list[tuple[str, str]]:
+    """Return (kbo, url) pairs for websites observed on or after *since* (current pipeline run)."""
     rows = await pool.fetch(
-        "SELECT kbo_number, value->>'url' AS url FROM companies_current "
-        "WHERE field = 'website' AND kbo_number NOT LIKE '9%'"
+        "SELECT DISTINCT kbo_number, value->>'url' AS url FROM observations "
+        "WHERE field = 'website' AND observed_at >= $1",
+        since,
     )
     return [(str(r["kbo_number"]).strip(), r["url"]) for r in rows if r["url"]]
 
 
-async def _get_placeholder_inputs(pool: asyncpg.Pool) -> list[tuple[str, str, str]]:
-    """Return (kbo_number, name, city) for placeholder KBOs."""
+async def _get_placeholder_inputs(
+    pool: asyncpg.Pool, since: datetime
+) -> list[tuple[str, str, str]]:
+    """Return (kbo_number, name, city) for placeholder KBOs observed in the current pipeline run."""
     name_rows = await pool.fetch(
-        "SELECT kbo_number, value->>'text' AS name FROM companies_current "
-        "WHERE field = 'name' AND kbo_number LIKE '9%'"
+        "SELECT DISTINCT kbo_number, value->>'text' AS name FROM observations "
+        "WHERE field = 'name' AND kbo_number LIKE '9%' AND observed_at >= $1",
+        since,
     )
     addr_rows = await pool.fetch(
-        "SELECT kbo_number, value->>'city' AS city FROM companies_current "
-        "WHERE field = 'address' AND kbo_number LIKE '9%'"
+        "SELECT DISTINCT kbo_number, value->>'city' AS city FROM observations "
+        "WHERE field = 'address' AND kbo_number LIKE '9%' AND observed_at >= $1",
+        since,
     )
     names = {str(r["kbo_number"]): r["name"] or "" for r in name_rows}
     cities = {str(r["kbo_number"]): r["city"] or "" for r in addr_rows}
@@ -266,7 +275,7 @@ async def run_pipeline(
         try:
             from scraper.sources.kbopub_html.ingester import ingest_kbos as kbopub_ingest
 
-            real_kbos = await _get_real_kbos(pool)
+            real_kbos = await _get_real_kbos(pool, started_at)
             if real_kbos:
                 kbopub_report = await kbopub_ingest(
                     real_kbos,
@@ -300,7 +309,7 @@ async def run_pipeline(
             from scraper.sources.nbb_authentic.ingester import ingest_kbos as nbb_ingest
 
             nbb_client = NbbClient(polite_client, config.nbb_subscription_key)
-            real_kbos = await _get_real_kbos(pool)
+            real_kbos = await _get_real_kbos(pool, started_at)
             if real_kbos:
                 nbb_report = await nbb_ingest(real_kbos, pool, nbb_client, skip_recent_hours=0)
                 report.sources_run.append("nbb_authentic")
@@ -327,7 +336,7 @@ async def run_pipeline(
         try:
             from scraper.sources.website.ingester import ingest_kbos as website_ingest
 
-            pairs = await _get_website_pairs(pool)
+            pairs = await _get_website_pairs(pool, started_at)
             if pairs:
                 web_report = await website_ingest(pairs, pool, polite_client, skip_recent_hours=0)
                 report.sources_run.append("website")
@@ -360,7 +369,7 @@ async def run_pipeline(
                 brave_client = BraveClient(polite_client, config.brave_subscription_key)
             ddg_client = DdgClient()
 
-            inputs = await _get_placeholder_inputs(pool)
+            inputs = await _get_placeholder_inputs(pool, started_at)
             if inputs:
                 search_report = await validate_companies(
                     inputs,

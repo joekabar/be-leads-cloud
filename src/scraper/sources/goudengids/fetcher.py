@@ -8,6 +8,7 @@ warmup+httpx approach is archived in archive/fetcher_httpx.py.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import random
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
@@ -66,6 +67,7 @@ class BrowserListingFetcher:
         self._pw: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
+        self._warmed_up: bool = False
 
     async def __aenter__(self) -> BrowserListingFetcher:
         self._pw = await async_playwright().start()
@@ -79,6 +81,8 @@ class BrowserListingFetcher:
         user_agent: str = await _temp_page.evaluate("navigator.userAgent")
         await _temp.close()
 
+        # Strip "Headless" so Imperva sees a normal Chrome UA, not "HeadlessChrome/X.Y"
+        user_agent = user_agent.replace("HeadlessChrome/", "Chrome/")
         self._context = await self._browser.new_context(
             user_agent=user_agent,
             locale="nl-BE",
@@ -99,6 +103,25 @@ class BrowserListingFetcher:
         self._pw = None
         self._context = None
 
+    async def _warmup(self) -> None:
+        """Navigate to the domain homepage once to establish Imperva session cookies."""
+        if self._context is None:
+            raise RuntimeError("BrowserListingFetcher must be used as an async context manager")
+        page = await self._context.new_page()
+        try:
+            await page.goto(
+                f"https://www.{self._domain}/",
+                wait_until="load",
+                timeout=30_000,
+            )
+        except PlaywrightTimeoutError:
+            logger.warning("goudengids_warmup_timeout", domain=self._domain)
+        finally:
+            await page.close()
+        await asyncio.sleep(3.0)
+        self._warmed_up = True
+        logger.debug("goudengids_warmup_done", domain=self._domain)
+
     async def fetch_listing(self, url: str) -> str:
         """Navigate to url and return the page HTML.
 
@@ -107,16 +130,17 @@ class BrowserListingFetcher:
         if self._context is None:
             raise RuntimeError("BrowserListingFetcher must be used as an async context manager")
 
+        if not self._warmed_up:
+            await self._warmup()
+
         await self._limiter.acquire(self._domain)
-        await asyncio.sleep(random.uniform(1.5, 3.0))
+        await asyncio.sleep(random.uniform(1.5, 3.0))  # noqa: S311
 
         page = await self._context.new_page()
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-            try:
+            await page.goto(url, wait_until="load", timeout=30_000)
+            with contextlib.suppress(PlaywrightTimeoutError):
                 await page.wait_for_selector(_LISTING_SELECTOR, timeout=20_000)
-            except PlaywrightTimeoutError:
-                pass  # empty-result pages have no listing cards
             html: str = await page.content()
         finally:
             await page.close()

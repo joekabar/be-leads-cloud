@@ -148,6 +148,28 @@ async def test_ingest_large_zip_200_plus_observations(large_zip: Path, fresh_poo
     assert report.observations_inserted >= 30_000
 
 
+async def test_skip_if_fresh_skips_when_data_exists(synthetic_zip: Path, fresh_pool) -> None:
+    """Second call with skip_if_fresh=True returns 0 observations when month already ingested."""
+    first = await ingest_zip(synthetic_zip, fresh_pool, refresh_view=False)
+    assert first.observations_inserted > 0
+
+    second = await ingest_zip(synthetic_zip, fresh_pool, refresh_view=False, skip_if_fresh=True)
+    assert second.observations_inserted == 0
+    assert second.enterprises_processed == 0
+
+    # Row count must not have grown
+    count_after = await fresh_pool.fetchval(
+        "SELECT COUNT(*) FROM observations WHERE source = 'kbo_dump'"
+    )
+    assert count_after == first.observations_inserted
+
+
+async def test_skip_if_fresh_runs_when_no_data(synthetic_zip: Path, fresh_pool) -> None:
+    """skip_if_fresh=True on an empty DB performs a normal ingest."""
+    report = await ingest_zip(synthetic_zip, fresh_pool, refresh_view=False, skip_if_fresh=True)
+    assert report.observations_inserted > 0
+
+
 async def test_ingest_city_filter(synthetic_zip: Path, fresh_pool) -> None:
     """city_filter=['Antwerpen'] should keep only enterprises with an Antwerpen address."""
     await ingest_zip(synthetic_zip, fresh_pool, city_filter=["Antwerpen"], refresh_view=False)

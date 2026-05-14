@@ -92,6 +92,12 @@ def cli_main() -> None:
         action="store_true",
         help="Confirm --truncate-first when >100k existing kbo_dump rows exist",
     )
+    parser.add_argument(
+        "--skip-if-fresh",
+        dest="skip_if_fresh",
+        action="store_true",
+        help="Skip ingest if observations for this snapshot month already exist in the database",
+    )
     args = parser.parse_args()
 
     zip_path = Path(args.zip)
@@ -139,6 +145,7 @@ def cli_main() -> None:
             max_enterprises=args.max_enterprises,
             truncate_first=args.truncate_first,
             yes=args.yes,
+            skip_if_fresh=args.skip_if_fresh,
         )
     )
     if exit_code:
@@ -156,6 +163,7 @@ async def _run(
     max_enterprises: int | None,
     truncate_first: bool,
     yes: bool,
+    skip_if_fresh: bool = False,
 ) -> int:
     import json as _json
 
@@ -187,6 +195,7 @@ async def _run(
             max_enterprises=max_enterprises,
             truncate_first=truncate_first,
             refresh_view=refresh_view,
+            skip_if_fresh=skip_if_fresh,
         )
     finally:
         await pool.close()

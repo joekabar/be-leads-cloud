@@ -46,17 +46,17 @@ def _parse_card(li: Tag, domain: str) -> ListingCardRow | None:
     except json.JSONDecodeError:
         return None
 
-    name = data.get("title", "").strip()
+    name = (data.get("title") or "").strip()
     if not name:
         return None
 
-    href = data.get("href", "")
+    href = data.get("href") or ""
     detail_url = href if href.startswith("http") else f"https://www.{domain}{href}"
 
     # Collect phones: primary from JSON blob first, then tel: dropdown links.
     phones: list[str] = []
     seen: set[str] = set()
-    primary = data.get("phone", "").strip()
+    primary = (data.get("phone") or "").strip()
     if primary:
         phones.append(primary)
         seen.add(primary)
@@ -97,7 +97,7 @@ def _parse_card(li: Tag, domain: str) -> ListingCardRow | None:
     desc_tag = li.select_one("div.result-item__description")
     description = desc_tag.get_text(strip=True) or None if desc_tag else None
 
-    logo_url = data.get("logo", "").strip() or None
+    logo_url = (data.get("logo") or "").strip() or None
 
     return ListingCardRow(
         name=name,

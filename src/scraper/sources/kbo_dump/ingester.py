@@ -168,6 +168,7 @@ async def ingest_zip(
     max_enterprises: int | None = None,
     truncate_first: bool = False,
     refresh_view: bool = True,
+    skip_if_fresh: bool = False,
 ) -> IngestReport:
     """Stream the ZIP through transformers and bulk-insert via COPY.
 
@@ -188,6 +189,38 @@ async def ingest_zip(
         snapshot_date = date.today()
 
     observed_at = datetime(snapshot_date.year, snapshot_date.month, snapshot_date.day, tzinfo=UTC)
+
+    if skip_if_fresh:
+        month_start = datetime(snapshot_date.year, snapshot_date.month, 1, tzinfo=UTC)
+        if snapshot_date.month == 12:
+            next_month_start = datetime(snapshot_date.year + 1, 1, 1, tzinfo=UTC)
+        else:
+            next_month_start = datetime(snapshot_date.year, snapshot_date.month + 1, 1, tzinfo=UTC)
+        async with pool.acquire() as conn:
+            already = await conn.fetchval(
+                """
+                SELECT 1 FROM observations
+                WHERE source = 'kbo_dump'
+                  AND observed_at >= $1 AND observed_at < $2
+                LIMIT 1
+                """,
+                month_start,
+                next_month_start,
+            )
+        if already is not None:
+            logger.info(
+                "kbo_dump_skip_if_fresh",
+                snapshot_date=snapshot_date.isoformat(),
+                month_label=month_label,
+            )
+            return IngestReport(
+                extract_type=extract_type,
+                snapshot_date=snapshot_date,
+                enterprises_processed=0,
+                observations_inserted=0,
+                phones_invalid_skipped=0,
+                duration_s=time.monotonic() - t0,
+            )
 
     runs_repo = RunsRepo(pool)
     run_id = await runs_repo.start_run(source="kbo_dump")

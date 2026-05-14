@@ -105,3 +105,29 @@ async def test_blocked_response_raises_blocked_error(fast_limiter, monkeypatch) 
         await fetcher._context.route("**/*", handler)
         with pytest.raises(BlockedError):
             await fetcher.fetch_page("elektriciens", "antwerpen", 1)
+
+
+@pytest.mark.asyncio
+async def test_warmup_runs_once_then_skipped(fast_limiter, monkeypatch) -> None:
+    """Homepage warmup fires on first fetch_listing call only."""
+    html = _html("listing_antwerpen_electriciens_page1.html")
+    monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
+    captured_urls: list[str] = []
+
+    async def handler(route, request):  # type: ignore[no-untyped-def]
+        captured_urls.append(request.url)
+        await route.fulfill(body=html, content_type="text/html; charset=utf-8")
+
+    async with BrowserListingFetcher(fast_limiter) as fetcher:
+        await fetcher._context.route("**/*", handler)
+        assert not fetcher._warmed_up
+
+        await fetcher.fetch_page("elektriciens", "antwerpen", 1)
+        assert fetcher._warmed_up
+        homepage_hits = [u for u in captured_urls if u.rstrip("/").endswith("goudengids.be")]
+        assert len(homepage_hits) == 1
+
+        captured_urls.clear()
+        await fetcher.fetch_page("elektriciens", "antwerpen", 2)
+        homepage_hits_second = [u for u in captured_urls if u.rstrip("/").endswith("goudengids.be")]
+        assert len(homepage_hits_second) == 0
