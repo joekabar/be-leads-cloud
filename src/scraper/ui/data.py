@@ -6,8 +6,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from uuid import UUID
-
     import asyncpg
 
 from scraper.db.repositories.observations import _row_to_obs
@@ -75,22 +73,24 @@ def _aggregate_row(kbo: str, obs_list: list[Any], now: datetime) -> dict[str, An
 
 async def fetch_results_for_run(
     pool: asyncpg.Pool,
-    run_id: UUID,
+    started_at: datetime,
     *,
     sector: str | None = None,
     city: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Pull rows from companies_current for KBOs touched by run_id.
+    """Pull rows for KBOs that received observations since *started_at*.
 
+    Uses the pipeline's started_at timestamp to scope results to the current
+    run, covering observations from all sources including consolidation
+    re-emissions (which have their own run_id and are otherwise invisible).
     Optionally filter by NACE prefix (sector) and address city.
-    Computes per-row score via scoring.ranking.compute_lead_score.
     """
     now = datetime.now(tz=UTC)
 
-    # Get all KBOs touched by this run.
+    # All KBOs touched during this pipeline run (any source).
     kbo_rows = await pool.fetch(
-        "SELECT DISTINCT kbo_number FROM observations WHERE run_id = $1",
-        run_id,
+        "SELECT DISTINCT kbo_number FROM observations WHERE observed_at >= $1",
+        started_at,
     )
     kbos = [str(r["kbo_number"]).strip() for r in kbo_rows]
     if not kbos:

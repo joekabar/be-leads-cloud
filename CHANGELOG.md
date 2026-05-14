@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (Prompt 15 — phone false-positive spam)
+- `_PHONE_TEXT_RE` in `website/ingester.py` ran against raw HTML, matching SVG `viewBox` coords, CSS `calc()` dimensions, decimal version strings, and other numeric noise as if they were Belgian phone numbers. Hundreds of `website_invalid_phone_skipped` warnings per run.
+- Fix 1: removed `.` from the character class (`[0-9 \-\/]`) — Belgian phone numbers never contain decimal points.
+- Fix 2: added `_visible_text()` helper (strips `<script>`, `<style>`, `<svg>`, `<noscript>` before extracting text nodes); `_PHONE_TEXT_RE` and `_EMAIL_TEXT_RE` now scan visible text instead of raw HTML. `tel:` hrefs still scan raw HTML as before.
+
+### Fixed (Prompt 15 — UI always shows 0 results)
+- `PipelineReport.run_id` is always `None` (the orchestrator never sets it), so `app.py`'s guard `if pool and report.run_id:` short-circuited to an empty row list after every pipeline run.
+- Changed `fetch_results_for_run` to accept `started_at: datetime` instead of `run_id: UUID`. The query now finds all KBOs with `observed_at >= started_at`, which covers both source observations and consolidation re-emissions (which have their own `run_id` and were invisible under the old approach).
+- `app.py` now passes `report.started_at` (always populated) and drops the `run_id` guard.
+
+### Fixed (Prompt 14 — pipeline orchestrator scoping bug)
+- `_get_real_kbos()`, `_get_website_pairs()`, `_get_placeholder_inputs()` each previously fetched from the entire observations table (1.9M rows), causing kbopub to attempt enrichment of every Belgian company and website source to visit 36K URLs on each pipeline run.
+- All three now accept a `since: datetime` parameter and filter `observed_at >= since`, scoping each source to companies discovered in the current pipeline run only. `started_at` (captured at `run_pipeline` entry) is passed through.
+- `_get_website_pairs()` also drops the `NOT LIKE '9%'` filter so it visits goudengids-placeholder companies' websites (they have websites but placeholder KBOs).
+
+### Fixed (Prompt 14 — goudengids parser null JSON fields)
+- `data.get("title", "")`, `data.get("href", "")`, `data.get("phone", "")`, `data.get("logo", "")` in `_parse_card()` all returned `None` when the JSON field existed with `null` value (Python `dict.get` only falls back to the default when the key is *absent*). Changed to `(data.get(key) or "")` pattern to treat both absent and null as empty string.
+
+### Fixed (Prompt 14 — kbopub multi-holder parser bug)
+- Root cause: companies with >~5 function holders use a different layout — kbopub wraps all holders in a hidden `<table id="toonfctie">` inside a single `<td colspan="3">`. `find_all("td")` recursed into nested TDs, making `tds[0].get_text()` the entire concatenated block ("whole bestuurder block"), logged as `unknown_role_label`.
+- Fixed `parse_function_holders` to detect `<table id="toonfctie">` sibling rows and delegate to new `_parse_hidden_function_table()`. Changed direct-child TD selection to `find_all("td", recursive=False)` so nested table content never bleeds into the column list.
+- Added `_parse_holder_tds()` shared helper to eliminate code duplication between the two layouts.
+- Extended `_LINKED_KBO_RE` with two new patterns: parenthesised dotted `(0405.117.332)` and standalone dotted `0405.117.332` — the actual formats kbopub uses in multi-holder pages (prev. patterns only covered `met KBO` prefix and bare 10-digit).
+- Added `"Persoon belast met dagelijks bestuur": "daily_manager"` to `_ROLE_MAP`.
+- New golden fixture `0500000001_many_holders.html`; 5 new tests covering the hidden-table layout, both KBO link formats, and zero unknown_role_label warnings.
+
+### Added (Prompt 14 — kbo_dump skip-if-fresh)
+- `ingest_zip(..., skip_if_fresh=True)`: checks for existing `kbo_dump` observations in the same snapshot month before starting; returns immediately with 0 rows if already ingested. Prevents duplicate ~250 MB ingests in recurring pipeline runs.
+- `be-leads-ingest-kbo --skip-if-fresh` CLI flag wired through `_run`.
+- Two new tests: `test_skip_if_fresh_skips_when_data_exists` and `test_skip_if_fresh_runs_when_no_data`.
+
+### Fixed (Prompt 14 — goudengids Imperva two-phase warmup)
+- `BrowserListingFetcher._warmup()`: navigate to domain homepage with `wait_until="load"` on first `fetch_listing` call to establish Imperva `incap_ses_*` session cookies before hitting search pages. Without this, Imperva's JS challenge page is returned instead of real results (0 cards). `wait_until="networkidle"` was rejected — Imperva's challenge scripts keep the network permanently busy.
+- Main `fetch_listing` navigation changed from `wait_until="domcontentloaded"` to `wait_until="load"` so any JS redirect after the challenge completes.
+- Pre-existing ruff issues cleaned: `assert` → `RuntimeError`, `try/except/pass` → `contextlib.suppress`, `S311` noqa for intentional sleep jitter.
+
+### Added (Prompt 14 — goudengids Imperva two-phase warmup)
+- `test_warmup_runs_once_then_skipped`: verifies homepage navigation fires exactly once across multiple `fetch_page` calls.
+
 ### Changed (Prompt 13 — goudengids browser-throughout)
 - `goudengids` fetcher: replaced two-phase warmup+httpx pattern with a single Playwright Chromium session held open for the entire sector×city scrape. Eliminates Imperva re-challenges on httpx TLS fingerprint. User-agent is read from the installed binary at launch (no hardcoded Chrome version).
 - `goudengids` ingester: `ingest_sector_city` now manages the browser lifecycle internally via `async with fetcher:` — callers no longer call `fetcher.warm()`.

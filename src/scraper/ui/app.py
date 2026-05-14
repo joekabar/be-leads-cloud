@@ -102,13 +102,13 @@ def main() -> None:
 
             # Fetch results from DB
             pool = asyncio.run(init_pool(db_url)) if db_url else None
-            if pool and report.run_id:
+            if pool:
                 from scraper.ui.data import fetch_results_for_run
 
                 rows = asyncio.run(
                     fetch_results_for_run(
                         pool,
-                        report.run_id,
+                        report.started_at,
                         sector=selected_sector_slug,
                         city=city,
                     )

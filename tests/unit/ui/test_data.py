@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from scraper.db.models import Observation
 from scraper.ui.data import (
@@ -17,6 +17,9 @@ from scraper.ui.data import (
 
 _NOW = datetime(2026, 5, 13, 12, 0, 0, tzinfo=UTC)
 _RUN = uuid4()
+# Pipeline started_at used in fetch_results_for_run tests — one second before _NOW
+# so obs with observed_at=_NOW satisfy the >= filter.
+_STARTED_AT = datetime(2026, 5, 13, 11, 59, 59, tzinfo=UTC)
 
 
 def _obs(field: str, value: dict, source: str = "kbo_dump", conf: float = 0.9) -> Observation:
@@ -131,82 +134,72 @@ class TestFetchResultsForRun:
     def test_empty_run_returns_empty_list(self) -> None:
         pool = AsyncMock()
         pool.fetch.return_value = []
-        run_id: UUID = uuid4()
-        result = asyncio.run(fetch_results_for_run(pool, run_id))
+        result = asyncio.run(fetch_results_for_run(pool, _STARTED_AT))
         assert result == []
 
     def test_returns_row_for_matching_kbo(self) -> None:
         pool = AsyncMock()
-        run_id: UUID = uuid4()
         kbo_record = {"kbo_number": "0439401387"}
         obs_records = [
-            _mock_record(field="name", value={"text": "Bellock NV"}, run_id=run_id),
+            _mock_record(field="name", value={"text": "Bellock NV"}),
             _mock_record(
                 field="address",
                 value={"street": "Lange Van", "postal_code": "2060", "city": "Antwerpen"},
-                run_id=run_id,
             ),
         ]
         pool.fetch.side_effect = [[kbo_record], obs_records]
-        rows = asyncio.run(fetch_results_for_run(pool, run_id))
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT))
         assert len(rows) == 1
         assert rows[0]["kbo_number"] == "0439401387"
         assert rows[0]["name"] == "Bellock NV"
 
     def test_city_filter_excludes_non_matching(self) -> None:
         pool = AsyncMock()
-        run_id: UUID = uuid4()
         kbo_record = {"kbo_number": "0439401387"}
         obs_records = [
             _mock_record(
                 field="address",
                 value={"street": "Some Street", "postal_code": "9000", "city": "Gent"},
-                run_id=run_id,
             ),
         ]
         pool.fetch.side_effect = [[kbo_record], obs_records]
-        rows = asyncio.run(fetch_results_for_run(pool, run_id, city="Antwerpen"))
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, city="Antwerpen"))
         assert rows == []
 
     def test_city_filter_includes_matching(self) -> None:
         pool = AsyncMock()
-        run_id: UUID = uuid4()
         kbo_record = {"kbo_number": "0439401387"}
         obs_records = [
             _mock_record(
                 field="address",
                 value={"street": "Lange Van", "postal_code": "2060", "city": "Antwerpen"},
-                run_id=run_id,
             ),
         ]
         pool.fetch.side_effect = [[kbo_record], obs_records]
-        rows = asyncio.run(fetch_results_for_run(pool, run_id, city="antwerpen"))
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, city="antwerpen"))
         assert len(rows) == 1
 
     def test_results_sorted_by_score_descending(self) -> None:
         pool = AsyncMock()
-        run_id: UUID = uuid4()
         kbo_records = [{"kbo_number": "0439401387"}, {"kbo_number": "0202239951"}]
         obs_bellock = [
-            _mock_record(field="name", value={"text": "Bellock NV"}, run_id=run_id),
-            _mock_record(field="phone", value={"e164": "+3232361306"}, run_id=run_id),
+            _mock_record(field="name", value={"text": "Bellock NV"}),
+            _mock_record(field="phone", value={"e164": "+3232361306"}),
             _mock_record(
                 field="address",
                 value={"street": "X", "postal_code": "2060", "city": "Antwerpen"},
-                run_id=run_id,
             ),
-            _mock_record(field="website", value={"url": "https://bellock.be"}, run_id=run_id),
-            _mock_record(field="founding_date", value={"iso": "1989-12-28"}, run_id=run_id),
+            _mock_record(field="website", value={"url": "https://bellock.be"}),
+            _mock_record(field="founding_date", value={"iso": "1989-12-28"}),
         ]
         obs_minimal = [
             _mock_record(
                 kbo_number="0202239951",
                 field="name",
                 value={"text": "Minimal NV"},
-                run_id=run_id,
             ),
         ]
         pool.fetch.side_effect = [kbo_records, obs_bellock, obs_minimal]
-        rows = asyncio.run(fetch_results_for_run(pool, run_id))
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT))
         assert len(rows) == 2
         assert rows[0]["score_overall"] >= rows[1]["score_overall"]

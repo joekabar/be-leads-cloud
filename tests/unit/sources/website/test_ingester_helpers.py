@@ -5,6 +5,7 @@ from __future__ import annotations
 from scraper.sources.website.ingester import (
     _extract_activity_summary,
     _extract_phones_and_emails,
+    _visible_text,
 )
 
 
@@ -57,6 +58,60 @@ class TestExtractPhonesAndEmails:
         html = '<a href="mailto:info@x.be?subject=hello">mail</a>'
         _, emails = _extract_phones_and_emails(html)
         assert any("?" not in r for r, _ in emails)
+
+    # False-positive regression tests — patterns seen in production logs.
+
+    def test_svg_viewbox_not_a_phone(self) -> None:
+        # SVG viewBox "0 0 512 512" was matching _PHONE_TEXT_RE against raw HTML.
+        html = '<svg viewBox="0 0 512 512"><path d="M0 0"/></svg><p>Info.</p>'
+        phones, _ = _extract_phones_and_emails(html)
+        assert not any("512" in r for r, _ in phones)
+
+    def test_css_decimal_not_a_phone(self) -> None:
+        # CSS calc values with decimals (e.g. "0.326-1.527") were matching.
+        html = "<style>.a { transform: translate(0.326, -1.527); }</style><p>Info.</p>"
+        phones, _ = _extract_phones_and_emails(html)
+        assert not any("." in r for r, _ in phones)
+
+    def test_script_number_not_a_phone(self) -> None:
+        # Numbers in JavaScript were matching (e.g. "0 0 640 512" in SVG viewBox vars).
+        html = "<script>var w=640, h=512; var o=0;</script><p>Contact: 03 236 13 06</p>"
+        phones, _ = _extract_phones_and_emails(html)
+        phone_raws = [r for r, _ in phones]
+        assert not any("640" in r for r in phone_raws)
+        assert any("03 236 13 06" in r for r in phone_raws)
+
+    def test_decimal_phone_skipped_by_regex(self) -> None:
+        # Decimal values like "0.9393 12.0001" (SVG coordinates) must not match
+        # because '.' is no longer in the character class.
+        html = "<p>0.9393 12.0001</p>"
+        phones, _ = _extract_phones_and_emails(html)
+        assert not any("0.9" in r for r, _ in phones)
+
+
+class TestVisibleText:
+    def test_strips_script_content(self) -> None:
+        html = "<script>var x = 0640512;</script><p>Hello</p>"
+        text = _visible_text(html)
+        assert "0640512" not in text
+        assert "Hello" in text
+
+    def test_strips_style_content(self) -> None:
+        html = "<style>.phone { font-size: 0.875em; }</style><p>World</p>"
+        text = _visible_text(html)
+        assert "0.875" not in text
+        assert "World" in text
+
+    def test_strips_svg_content(self) -> None:
+        html = '<svg viewBox="0 0 512 512"><path d="M0 0 L512 512"/></svg><p>Text</p>'
+        text = _visible_text(html)
+        assert "512" not in text
+        assert "Text" in text
+
+    def test_keeps_paragraph_text(self) -> None:
+        html = "<html><body><p>Bel 03 236 13 06</p></body></html>"
+        text = _visible_text(html)
+        assert "03 236 13 06" in text
 
 
 class TestExtractActivitySummary:

@@ -31,9 +31,23 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 _PHONE_HREF_RE = re.compile(r"tel:([+\d\s\-\.\/]+)", re.IGNORECASE)
-_PHONE_TEXT_RE = re.compile(r"(?:\+32|0032|\+31|0)[0-9 \-\.\/]{7,14}")
+# No decimal point: Belgian phone numbers never contain '.'. Decimal matches
+# are CSS calc() values, SVG coords, version strings — all noise.
+_PHONE_TEXT_RE = re.compile(r"(?:\+32|0032|\+31|0)[0-9 \-\/]{7,14}")
 _EMAIL_HREF_RE = re.compile(r"mailto:([^\s?\"]+)", re.IGNORECASE)
 _EMAIL_TEXT_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
+
+_NOISE_TAGS = {"script", "style", "svg", "noscript"}
+
+
+def _visible_text(html: str) -> str:
+    """Extract human-visible text, stripping scripts/styles/SVG that contain numeric noise."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "lxml")
+    for tag in soup(_NOISE_TAGS):
+        tag.decompose()
+    return soup.get_text(separator=" ")
 
 
 def _extract_phones_and_emails(
@@ -46,13 +60,17 @@ def _extract_phones_and_emails(
     emails: list[tuple[str, float]] = []
     seen_emails: set[str] = set()
 
+    # tel: hrefs are intentional links — scan raw HTML.
     for m in _PHONE_HREF_RE.finditer(html):
         raw = m.group(1).strip()
         if raw not in seen_phones:
             seen_phones.add(raw)
             phones.append((raw, 0.85))
 
-    for m in _PHONE_TEXT_RE.finditer(html):
+    # Text-pattern scan: use visible text only so CSS/SVG/script numeric values
+    # (SVG viewBox, calc() dimensions, version strings) don't produce matches.
+    text = _visible_text(html)
+    for m in _PHONE_TEXT_RE.finditer(text):
         raw = m.group(0).strip()
         if raw not in seen_phones:
             seen_phones.add(raw)
@@ -64,7 +82,7 @@ def _extract_phones_and_emails(
             seen_emails.add(raw)
             emails.append((raw, 0.85))
 
-    for m in _EMAIL_TEXT_RE.finditer(html):
+    for m in _EMAIL_TEXT_RE.finditer(text):
         raw = m.group(0).strip()
         if raw not in seen_emails:
             seen_emails.add(raw)
