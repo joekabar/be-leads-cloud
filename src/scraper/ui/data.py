@@ -77,6 +77,7 @@ async def fetch_results_for_run(
     *,
     sector: str | None = None,
     city: str | None = None,
+    postcodes: tuple[str, ...] | None = None,
 ) -> list[dict[str, Any]]:
     """Pull rows matching sector+city from all-time DB observations.
 
@@ -85,6 +86,8 @@ async def fetch_results_for_run(
     *started_at* filtering when no city is provided (avoids a full table scan).
     Goudengids KBOs (sector-filtered at scrape time) are always included via a
     UNION branch so placeholder KBOs without NACE observations are not dropped.
+    When *postcodes* is non-empty, restricts results to companies whose address
+    postal_code matches one of those codes.
     """
     now = datetime.now(tz=UTC)
 
@@ -162,6 +165,14 @@ async def fetch_results_for_run(
             addr_obs = [o for o in obs_list if o.field == "address"]
             city_lower = city.lower()
             if not any(city_lower in str(o.value.get("city", "")).lower() for o in addr_obs):
+                continue
+
+        # Postcode filter: restrict to companies whose address has one of the
+        # selected postcodes. KBOs without any address obs are dropped here.
+        if postcodes:
+            addr_obs = [o for o in obs_list if o.field == "address"]
+            company_postcodes = {str(o.value.get("postal_code", "")).strip() for o in addr_obs}
+            if not company_postcodes & set(postcodes):
                 continue
 
         result.append(_aggregate_row(kbo, obs_list, now))

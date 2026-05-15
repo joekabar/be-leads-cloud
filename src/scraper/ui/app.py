@@ -17,7 +17,11 @@ def main() -> None:
     with st.sidebar:
         st.header("Search settings")
 
-        from scraper.ui.components.pickers import find_kbo_zips, load_sector_options
+        from scraper.ui.components.pickers import (
+            find_kbo_zips,
+            load_city_options,
+            load_sector_options,
+        )
 
         sector_options = load_sector_options()
         sector_labels = [f"{display}" for _, display in sector_options]
@@ -30,7 +34,25 @@ def main() -> None:
         )
         selected_sector_slug = sector_slugs[sector_idx]
 
-        city = st.text_input("City", value="Antwerpen")
+        city_options = load_city_options()
+        city_labels = [display for _, display, _ in city_options]
+        city_slugs = [slug for slug, _, _ in city_options]
+        city_postcodes_by_idx = [postcodes for _, _, postcodes in city_options]
+        city_idx = st.selectbox(
+            "City",
+            range(len(city_labels)),
+            format_func=lambda i: city_labels[i],
+        )
+        city = city_labels[city_idx]
+        city_slug = city_slugs[city_idx]
+        available_postcodes = city_postcodes_by_idx[city_idx]
+        selected_postcodes = st.multiselect(
+            "Postcodes",
+            options=available_postcodes,
+            default=available_postcodes,
+            help="Restrict results to these postal codes within the city",
+        )
+
         lang = st.radio("Language", ["NL", "FR"], horizontal=True)
         max_pages = st.slider("Pages to scan", 1, 25, 5)
 
@@ -88,12 +110,13 @@ def main() -> None:
 
         config = PipelineConfig(
             sector=selected_sector_slug,
-            city=city,
+            city=city_slug,
             sector_slug=nl_slug,
             max_pages=max_pages,
             lang="nl" if lang == "NL" else "fr",
             use_fixture=False,
             fixture_zip_path=selected_zip_path,
+            postcodes=tuple(selected_postcodes),
             do_kbo_dump=do_kbo and selected_zip_path is not None,
             do_goudengids=do_goud,
             do_kbopub=do_kbopub,
@@ -136,6 +159,7 @@ def main() -> None:
                             report.started_at,
                             sector=selected_sector_slug,
                             city=city,
+                            postcodes=tuple(selected_postcodes) or None,
                         )
                     finally:
                         await p.close()

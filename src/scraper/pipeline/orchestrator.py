@@ -58,6 +58,7 @@ class PipelineConfig:
     lang: Literal["nl", "fr"] = "nl"
     use_fixture: bool = False
     fixture_zip_path: Path | None = None
+    postcodes: tuple[str, ...] = ()
     do_kbo_dump: bool = True
     do_goudengids: bool = True
     do_kbopub: bool = True

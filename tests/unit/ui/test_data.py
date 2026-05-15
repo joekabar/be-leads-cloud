@@ -219,6 +219,48 @@ class TestFetchResultsForRun:
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="elektriciens"))
         assert len(rows) == 1
 
+    def test_postcode_filter_excludes_non_matching(self) -> None:
+        """Companies whose address postal_code is not in the postcodes set are excluded."""
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [
+            _mock_record(
+                field="address",
+                value={"street": "X", "postal_code": "2018", "city": "Antwerpen"},
+            ),
+        ]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, postcodes=("2000", "2020")))
+        assert rows == [], "company with postcode 2018 must be excluded when filter is {2000,2020}"
+
+    def test_postcode_filter_includes_matching(self) -> None:
+        """Companies whose address postal_code is in the postcodes set are included."""
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [
+            _mock_record(
+                field="address",
+                value={"street": "X", "postal_code": "2000", "city": "Antwerpen"},
+            ),
+        ]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, postcodes=("2000", "2020")))
+        assert len(rows) == 1
+
+    def test_postcode_filter_none_disables_filter(self) -> None:
+        """postcodes=None means no postcode filter is applied."""
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [
+            _mock_record(
+                field="address",
+                value={"street": "X", "postal_code": "2018", "city": "Antwerpen"},
+            ),
+        ]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, postcodes=None))
+        assert len(rows) == 1
+
     def test_goudengids_discovery_scoped_to_sector(self) -> None:
         """KBO discovery query must pass sector slugs so goudengids results from
         a different sector run are not returned (prevents cross-run contamination)."""

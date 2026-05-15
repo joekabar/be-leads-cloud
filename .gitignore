@@ -28,6 +28,7 @@ htmlcov/
 # Data
 data/
 leads/
+KBO_zip/
 
 # Debug / scratch
 gg_*.html

@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from scraper.ui.components.pickers import find_kbo_zips
+from scraper.ui.components.pickers import find_kbo_zips, load_city_options
 
 
 class TestFindKboZips:
@@ -48,3 +48,33 @@ class TestFindKboZips:
         result = find_kbo_zips(d)
         assert result[0][0].name == newer.name, "newest mtime must come first"
         assert result[1][0].name == older.name
+
+
+class TestLoadCityOptions:
+    def test_returns_tuples_with_slug_display_postcodes(self) -> None:
+        options = load_city_options()
+        assert len(options) > 0
+        for slug, display, postcodes in options:
+            assert slug
+            assert display
+            assert isinstance(postcodes, list)
+            assert all(isinstance(p, str) and p for p in postcodes)
+
+    def test_sorted_by_display_name(self) -> None:
+        options = load_city_options()
+        displays = [d for _, d, _ in options]
+        assert displays == sorted(displays)
+
+    def test_oostende_present_with_8400(self) -> None:
+        options = load_city_options()
+        by_slug = {slug: (display, postcodes) for slug, display, postcodes in options}
+        assert "oostende" in by_slug
+        _, postcodes = by_slug["oostende"]
+        assert "8400" in postcodes
+
+    def test_antwerpen_present_with_2000(self) -> None:
+        options = load_city_options()
+        by_slug = {slug: (display, postcodes) for slug, display, postcodes in options}
+        assert "antwerpen" in by_slug
+        _, postcodes = by_slug["antwerpen"]
+        assert "2000" in postcodes

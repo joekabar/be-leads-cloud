@@ -16,6 +16,15 @@ _SECTORS_TOML = (
     / "sectors.toml"
 )
 
+_POSTCODES_TOML = (
+    Path(__file__).parents[4]
+    / ".claude"
+    / "skills"
+    / "goudengids-listing"
+    / "references"
+    / "postcodes.toml"
+)
+
 _KBO_ZIP_DIR = Path(__file__).parents[4] / "KBO_zip"
 _KBO_ZIP_RE = re.compile(
     r"^KboOpenData_\d+_(\d{4})_(\d{2})_(\d{2})_(Full|Update)\.zip$",
@@ -73,3 +82,20 @@ def render_city_input(default: str = "Antwerpen") -> str:
     import streamlit as st
 
     return str(st.text_input("City", value=default))
+
+
+def load_city_options() -> list[tuple[str, str, list[str]]]:
+    """Return [(city_slug, display, postcodes), ...] sorted by display name."""
+    with _POSTCODES_TOML.open("rb") as fh:
+        data: dict[str, Any] = tomllib.load(fh)
+    cities = data.get("cities", {})
+    options: list[tuple[str, str, list[str]]] = []
+    for slug, entry in cities.items():
+        if not isinstance(entry, dict):
+            continue
+        display = str(entry.get("display", slug))
+        postcodes = [str(p) for p in entry.get("postcodes", []) if str(p).strip()]
+        if not postcodes:
+            continue
+        options.append((str(slug), display, postcodes))
+    return sorted(options, key=lambda x: x[1])
