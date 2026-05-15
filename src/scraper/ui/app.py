@@ -94,6 +94,15 @@ def main() -> None:
             min_score = st.slider("Min lead score", 0.0, 1.0, 0.0, 0.05)
             require_phone = st.checkbox("Must have phone", value=False)
             require_website = st.checkbox("Must have website", value=False)
+            require_email = st.checkbox("Must have email", value=False)
+            active_only = st.checkbox(
+                "Active companies only",
+                value=True,
+                help=(
+                    "Rows with unknown status pass through; filter applies "
+                    "only when status is recorded."
+                ),
+            )
             founded_range_enabled = st.checkbox("Filter by founding year", value=False)
             if founded_range_enabled:
                 founded_after_year = st.number_input(
@@ -193,6 +202,8 @@ def main() -> None:
                             min_score=min_score,
                             require_phone=require_phone,
                             require_website=require_website,
+                            require_email=require_email,
+                            active_only=active_only,
                             founded_after=founded_after,
                             founded_before=founded_before,
                             min_revenue=min_revenue,

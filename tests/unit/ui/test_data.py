@@ -129,6 +129,63 @@ class TestAggregateRow:
         assert "Alice Smith" in row["function_holders"]
         assert "Bob Jones" in row["function_holders"]
 
+    def test_aggregates_all_phones_dedup_by_e164(self) -> None:
+        obs = [
+            _obs("phone", {"e164": "+3232361306"}, source="goudengids", conf=0.85),
+            _obs("phone", {"e164": "+32475999930"}, source="website", conf=0.75),
+            _obs("phone", {"e164": "+3232361306"}, source="kbo_dump", conf=0.95),  # dup
+        ]
+        row = _aggregate_row("0439401387", obs, _NOW)
+        assert row["phones_all"].count("+3232361306") == 1
+        assert "+32475999930" in row["phones_all"]
+        # Highest-confidence value remains in `phone` (single best).
+        assert row["phone"] == "+3232361306"
+
+    def test_aggregates_all_emails_dedup(self) -> None:
+        obs = [
+            _obs("email", {"address": "a@x.be"}, source="website", conf=0.85),
+            _obs("email", {"address": "b@x.be"}, source="website", conf=0.50),
+        ]
+        row = _aggregate_row("0439401387", obs, _NOW)
+        assert "a@x.be" in row["emails_all"]
+        assert "b@x.be" in row["emails_all"]
+        assert row["email"] == "a@x.be"  # best (higher confidence)
+
+    def test_function_holders_all_uncapped_with_roles(self) -> None:
+        obs = [
+            _obs("function_holder", {"name": f"Person {i}", "role": "director"}) for i in range(8)
+        ]
+        row = _aggregate_row("0439401387", obs, _NOW)
+        # function_holders is capped at 5; function_holders_all is not.
+        assert row["function_holders"].count(";") == 4  # 5 entries → 4 separators
+        assert row["function_holders_all"].count(";") == 7  # 8 entries → 7 separators
+        assert "(director)" in row["function_holders_all"]
+
+    def test_nace_description_surfaced_from_obs(self) -> None:
+        obs = [_obs("nace_code", {"code": "43211", "description": "Electrical installation"})]
+        row = _aggregate_row("0439401387", obs, _NOW)
+        assert row["nace_code"] == "43211"
+        assert row["nace_description"] == "Electrical installation"
+
+    def test_status_surfaced_from_obs(self) -> None:
+        obs = [_obs("status", {"text": "active"})]
+        row = _aggregate_row("0439401387", obs, _NOW)
+        assert row["status"] == "active"
+
+    def test_website_summary_from_activity_summary(self) -> None:
+        obs = [_obs("activity_summary", {"text": "We install solar panels."})]
+        row = _aggregate_row("0439401387", obs, _NOW)
+        assert row["website_summary"] == "We install solar panels."
+
+    def test_sources_count_counts_observations_per_source(self) -> None:
+        obs = [
+            _obs("name", {"text": "X"}, source="kbo_dump"),
+            _obs("address", {"street": "S"}, source="kbo_dump"),
+            _obs("phone", {"e164": "+3232361306"}, source="goudengids"),
+        ]
+        row = _aggregate_row("0439401387", obs, _NOW)
+        assert row["sources_count"] == {"kbo_dump": 2, "goudengids": 1}
+
 
 class TestFetchResultsForRun:
     def test_empty_run_returns_empty_list(self) -> None:
