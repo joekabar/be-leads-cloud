@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (UI review — NACE sector filter missing for 58 sectors)
+- `_SECTOR_NACE_PREFIXES` in `pipeline/orchestrator.py` only covered 10 construction/trade sectors. Any other sector (accountants, advocaten, restaurants, hotels, …) ran the KBO dump with no NACE filter, returning every company in the city. A search for "accountants · Aalst" produced 6437 results instead of ~50.
+- Added NACE prefixes for all 67 sectors across 8 groups: construction, automotive, food/hospitality, retail, professional services, healthcare, ICT, and other services.
+- Added `tests/unit/pipeline/test_sector_nace.py` with 19 tests: full-coverage assertion, no-empty-list guard, dotless-format guard, and 16 spot-checks for specific sector→prefix mappings.
+
 ### Fixed (Prompt 15 — phone false-positive spam)
 - `_PHONE_TEXT_RE` in `website/ingester.py` ran against raw HTML, matching SVG `viewBox` coords, CSS `calc()` dimensions, decimal version strings, and other numeric noise as if they were Belgian phone numbers. Hundreds of `website_invalid_phone_skipped` warnings per run.
 - Fix 1: removed `.` from the character class (`[0-9 \-\/]`) — Belgian phone numbers never contain decimal points.
