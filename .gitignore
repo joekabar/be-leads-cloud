@@ -27,6 +27,12 @@ htmlcov/
 
 # Data
 data/
+leads/
+
+# Debug / scratch
+gg_*.html
+scripts/debug_*.py
+scripts/test_*.py
 
 # IDE
 .vscode/
