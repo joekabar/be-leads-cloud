@@ -243,7 +243,19 @@ def main() -> None:
                 "phones/emails, all directors, status, NACE, and per-source counts."
             ),
         )
-        render_results_table(rows, show_details_per_row=show_details)
+        show_diagnostic = st.checkbox(
+            "Show diagnostic per row",
+            value=False,
+            help=(
+                "Adds two columns to the table: 'Missing' (HVF fields with no "
+                "data) and 'Sources' (which sources contributed observations)."
+            ),
+        )
+        render_results_table(
+            rows,
+            show_details_per_row=show_details,
+            show_diagnostic_per_row=show_diagnostic,
+        )
 
     # ── Footer ────────────────────────────────────────────────────────────
     st.markdown("---")

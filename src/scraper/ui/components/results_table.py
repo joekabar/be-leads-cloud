@@ -4,6 +4,38 @@ from __future__ import annotations
 
 from typing import Any
 
+_DIAGNOSTIC_HVF = (
+    "phone",
+    "website",
+    "address",
+    "founding_date",
+    "function_holders",
+    "revenue_latest",
+    "email",
+    "status",
+)
+
+
+def _missing_fields(row: dict[str, Any]) -> str:
+    """Return a comma-separated list of HVF fields that are empty for this row."""
+    missing: list[str] = []
+    for f in _DIAGNOSTIC_HVF:
+        v = row.get(f)
+        if v is None:
+            missing.append(f)
+            continue
+        if isinstance(v, str) and not v.strip():
+            missing.append(f)
+    return ", ".join(missing)
+
+
+def _sources_compact(row: dict[str, Any]) -> str:
+    """Return a short 'src1, src2, src3' summary of which sources contributed data."""
+    sc = row.get("sources_count")
+    if isinstance(sc, dict) and sc:
+        return ", ".join(sorted(sc.keys()))
+    return ""
+
 
 def render_company_details(row: dict[str, Any]) -> None:
     """Render a single company's expanded detail block.
@@ -71,6 +103,7 @@ def render_results_table(
     *,
     show_score: bool = True,
     show_details_per_row: bool = False,
+    show_diagnostic_per_row: bool = False,
 ) -> None:
     """Render a Streamlit dataframe with column config and CSV download button."""
     import pandas as pd
@@ -80,7 +113,13 @@ def render_results_table(
         st.info("No results found.")
         return
 
-    df = pd.DataFrame(rows)
+    enriched_rows = rows
+    if show_diagnostic_per_row:
+        enriched_rows = [
+            {**r, "missing_fields": _missing_fields(r), "sources": _sources_compact(r)}
+            for r in rows
+        ]
+    df = pd.DataFrame(enriched_rows)
 
     col_cfg: dict[str, Any] = {
         "kbo_number": st.column_config.TextColumn("KBO"),
@@ -99,6 +138,13 @@ def render_results_table(
     if show_score:
         col_cfg["score_overall"] = st.column_config.ProgressColumn(
             "Score", min_value=0.0, max_value=1.0
+        )
+    if show_diagnostic_per_row:
+        col_cfg["missing_fields"] = st.column_config.TextColumn(
+            "Missing", help="HVF fields that are empty for this company"
+        )
+        col_cfg["sources"] = st.column_config.TextColumn(
+            "Sources", help="Sources that contributed observations for this company"
         )
 
     display_cols = list(col_cfg.keys())
