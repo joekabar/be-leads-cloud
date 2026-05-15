@@ -288,6 +288,65 @@ class TestFetchResultsForRun:
         assert "bakkers" in sector_slugs_arg, "NL slug must be in sector_slugs arg"
         assert "boulangeries" in sector_slugs_arg, "FR slug must be in sector_slugs arg"
 
+    def test_min_score_filter_drops_low_quality(self) -> None:
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "9000000001"}
+        obs_records = [
+            _mock_record(
+                kbo_number="9000000001",
+                field="name",
+                value={"text": "Tiny Co"},
+                source="goudengids",
+                confidence=0.85,
+            ),
+        ]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, min_score=0.9))
+        assert rows == [], "low-score row must be filtered when min_score=0.9"
+
+    def test_require_phone_filter(self) -> None:
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [_mock_record(field="name", value={"text": "Bellock NV"})]  # no phone
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, require_phone=True))
+        assert rows == [], "row without phone must be filtered when require_phone=True"
+
+    def test_require_website_filter_allows_when_present(self) -> None:
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [
+            _mock_record(field="website", value={"url": "https://x.be", "tld": "be"}),
+        ]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, require_website=True))
+        assert len(rows) == 1
+
+    def test_founded_after_filter_drops_older_company(self) -> None:
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [_mock_record(field="founding_date", value={"iso": "1985-01-01"})]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, founded_after="2000-01-01"))
+        assert rows == []
+
+    def test_founded_date_unknown_passes_through(self) -> None:
+        """Companies with no founding_date observation must not be filtered out."""
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [_mock_record(field="name", value={"text": "X"})]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, founded_after="2000-01-01"))
+        assert len(rows) == 1, "unknown founding_date must pass through"
+
+    def test_min_revenue_filter(self) -> None:
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [_mock_record(field="revenue_2023", value={"eur": 100_000.0})]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, min_revenue=1_000_000.0))
+        assert rows == []
+
     def test_results_sorted_by_score_descending(self) -> None:
         pool = AsyncMock()
         kbo_records = [{"kbo_number": "0439401387"}, {"kbo_number": "0202239951"}]

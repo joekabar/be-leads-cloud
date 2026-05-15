@@ -89,6 +89,36 @@ def main() -> None:
         do_web = st.checkbox("Company websites", value=True)
         do_search = st.checkbox("Search cross-validation", value=True)
 
+        st.markdown("---")
+        with st.expander("Filters", expanded=False):
+            min_score = st.slider("Min lead score", 0.0, 1.0, 0.0, 0.05)
+            require_phone = st.checkbox("Must have phone", value=False)
+            require_website = st.checkbox("Must have website", value=False)
+            founded_range_enabled = st.checkbox("Filter by founding year", value=False)
+            if founded_range_enabled:
+                founded_after_year = st.number_input(
+                    "Founded after", min_value=1900, max_value=2100, value=1980, step=1
+                )
+                founded_before_year = st.number_input(
+                    "Founded before",
+                    min_value=1900,
+                    max_value=2100,
+                    value=2100,
+                    step=1,
+                )
+                founded_after = f"{int(founded_after_year):04d}-01-01"
+                founded_before = f"{int(founded_before_year):04d}-12-31"
+            else:
+                founded_after = None
+                founded_before = None
+            st.markdown("**Financials** (requires NBB data)")
+            min_revenue_val = st.number_input(
+                "Min revenue (EUR)", min_value=0, value=0, step=10_000
+            )
+            min_employees_val = st.number_input("Min employees", min_value=0, value=0, step=1)
+            min_revenue = float(min_revenue_val) if min_revenue_val > 0 else None
+            min_employees = float(min_employees_val) if min_employees_val > 0 else None
+
         run_btn = st.button("Run pipeline", type="primary", use_container_width=True)
 
     # ── Main area ─────────────────────────────────────────────────────────
@@ -160,6 +190,13 @@ def main() -> None:
                             sector=selected_sector_slug,
                             city=city,
                             postcodes=tuple(selected_postcodes) or None,
+                            min_score=min_score,
+                            require_phone=require_phone,
+                            require_website=require_website,
+                            founded_after=founded_after,
+                            founded_before=founded_before,
+                            min_revenue=min_revenue,
+                            min_employees=min_employees,
                         )
                     finally:
                         await p.close()

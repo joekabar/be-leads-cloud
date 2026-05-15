@@ -78,6 +78,13 @@ async def fetch_results_for_run(
     sector: str | None = None,
     city: str | None = None,
     postcodes: tuple[str, ...] | None = None,
+    min_score: float = 0.0,
+    require_phone: bool = False,
+    require_website: bool = False,
+    founded_after: str | None = None,
+    founded_before: str | None = None,
+    min_revenue: float | None = None,
+    min_employees: float | None = None,
 ) -> list[dict[str, Any]]:
     """Pull rows matching sector+city from all-time DB observations.
 
@@ -88,6 +95,15 @@ async def fetch_results_for_run(
     UNION branch so placeholder KBOs without NACE observations are not dropped.
     When *postcodes* is non-empty, restricts results to companies whose address
     postal_code matches one of those codes.
+
+    Result filters (applied after aggregation, before sorting):
+    - *min_score*: drop rows with score_overall < this value.
+    - *require_phone* / *require_website*: drop rows without that field.
+    - *founded_after* / *founded_before*: ISO date strings; drop rows whose
+      founding_date falls outside the range. Rows with no founding_date pass
+      through (we don't know, so don't filter).
+    - *min_revenue* / *min_employees*: drop rows below threshold; rows where
+      the value is unknown pass through.
     """
     now = datetime.now(tz=UTC)
 
@@ -175,7 +191,59 @@ async def fetch_results_for_run(
             if not company_postcodes & set(postcodes):
                 continue
 
-        result.append(_aggregate_row(kbo, obs_list, now))
+        row = _aggregate_row(kbo, obs_list, now)
+        if not _passes_filters(
+            row,
+            min_score=min_score,
+            require_phone=require_phone,
+            require_website=require_website,
+            founded_after=founded_after,
+            founded_before=founded_before,
+            min_revenue=min_revenue,
+            min_employees=min_employees,
+        ):
+            continue
+        result.append(row)
 
     result.sort(key=lambda r: r["score_overall"], reverse=True)
     return result
+
+
+def _passes_filters(
+    row: dict[str, Any],
+    *,
+    min_score: float,
+    require_phone: bool,
+    require_website: bool,
+    founded_after: str | None,
+    founded_before: str | None,
+    min_revenue: float | None,
+    min_employees: float | None,
+) -> bool:
+    """Return True if *row* satisfies all active filter criteria.
+
+    Filters compose with AND. For optional fields (founding_date, revenue,
+    employees) a row passes if the value is missing — we don't filter on
+    unknowns, we just don't include them in the threshold comparison.
+    """
+    if row.get("score_overall", 0.0) < min_score:
+        return False
+    if require_phone and not row.get("phone"):
+        return False
+    if require_website and not row.get("website"):
+        return False
+    founding = row.get("founding_date")
+    if founding:
+        if founded_after and founding < founded_after:
+            return False
+        if founded_before and founding > founded_before:
+            return False
+    if min_revenue is not None:
+        rev = row.get("revenue_latest")
+        if rev is not None and rev < min_revenue:
+            return False
+    if min_employees is not None:
+        emp = row.get("employees")
+        if emp is not None and emp < min_employees:
+            return False
+    return True
