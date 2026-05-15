@@ -221,12 +221,16 @@ def main() -> None:
 
     last_report: object = st.session_state.get("last_report")
     if last_report is not None:
-        log_text = st.session_state.get("last_log", "")
-        if log_text:
-            with st.expander("Pipeline log", expanded=False):
-                st.code(log_text, language="json")
+        from scraper.ui.components.diagnostics import render_diagnostics
 
         rows = st.session_state.get("last_rows", [])
+        render_diagnostics(last_report, rows)  # type: ignore[arg-type]
+
+        log_text = st.session_state.get("last_log", "")
+        if log_text:
+            with st.expander("Pipeline log (raw JSON)", expanded=False):
+                st.code(log_text, language="json")
+
         st.subheader(f"Results — {len(rows)} companies")
 
         from scraper.ui.components.results_table import render_results_table

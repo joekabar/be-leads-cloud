@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+import time
 import tomllib
 import zipfile
 from dataclasses import dataclass, field
@@ -81,6 +82,7 @@ class PipelineReport:
     sources_skipped: list[str] = field(default_factory=list)
     sources_failed: dict[str, str] = field(default_factory=dict)
     observations_inserted_per_source: dict[str, int] = field(default_factory=dict)
+    duration_per_source: dict[str, float] = field(default_factory=dict)
     placeholders_created: int = 0
     placeholders_resolved: int = 0
     companies_in_view: int = 0
@@ -196,7 +198,6 @@ async def run_pipeline(
     polite_client: PoliteClient,
 ) -> PipelineReport:
     """Run all six sources in dependency order with per-source error isolation."""
-    import time
 
     t0 = time.monotonic()
     started_at = datetime.now(tz=UTC)
@@ -214,6 +215,7 @@ async def run_pipeline(
     tmp_dir: Path | None = None
 
     # ── Source 1: kbo_dump ─────────────────────────────────────────────────
+    _t_src = time.monotonic()
     if config.do_kbo_dump:
         try:
             from scraper.sources.kbo_dump.ingester import ingest_zip
@@ -257,8 +259,10 @@ async def run_pipeline(
                 shutil.rmtree(tmp_dir, ignore_errors=True)
     else:
         report.sources_skipped.append("kbo_dump")
+    report.duration_per_source["kbo_dump"] = round(time.monotonic() - _t_src, 2)
 
     # ── Source 2: goudengids ───────────────────────────────────────────────
+    _t_src = time.monotonic()
     if config.do_goudengids:
         try:
             from scraper.sources.goudengids.fetcher import BrowserListingFetcher
@@ -292,8 +296,10 @@ async def run_pipeline(
             log.error("goudengids_failed", error=str(exc))
     else:
         report.sources_skipped.append("goudengids")
+    report.duration_per_source["goudengids"] = round(time.monotonic() - _t_src, 2)
 
     # ── Source 3: kbopub_html ──────────────────────────────────────────────
+    _t_src = time.monotonic()
     if config.do_kbopub:
         try:
             from scraper.sources.kbopub_html.ingester import ingest_kbos as kbopub_ingest
@@ -333,8 +339,10 @@ async def run_pipeline(
             log.error("kbopub_failed", error=str(exc))
     else:
         report.sources_skipped.append("kbopub_html")
+    report.duration_per_source["kbopub_html"] = round(time.monotonic() - _t_src, 2)
 
     # ── Source 4: nbb_authentic ────────────────────────────────────────────
+    _t_src = time.monotonic()
     if config.do_nbb and config.nbb_subscription_key:
         try:
             from scraper.sources.nbb_authentic.client import NbbClient
@@ -362,8 +370,10 @@ async def run_pipeline(
         reason = "no_key" if not config.nbb_subscription_key else "disabled"
         report.sources_skipped.append("nbb_authentic")
         log.debug("nbb_skipped", reason=reason)
+    report.duration_per_source["nbb_authentic"] = round(time.monotonic() - _t_src, 2)
 
     # ── Source 5: website ──────────────────────────────────────────────────
+    _t_src = time.monotonic()
     if config.do_website:
         try:
             from scraper.sources.website.ingester import ingest_kbos as website_ingest
@@ -388,8 +398,10 @@ async def run_pipeline(
             log.error("website_failed", error=str(exc))
     else:
         report.sources_skipped.append("website")
+    report.duration_per_source["website"] = round(time.monotonic() - _t_src, 2)
 
     # ── Source 6: ddg_brave ────────────────────────────────────────────────
+    _t_src = time.monotonic()
     if config.do_search:
         try:
             from scraper.sources.ddg_brave.brave_client import BraveClient
@@ -428,6 +440,7 @@ async def run_pipeline(
             log.error("search_failed", error=str(exc))
     else:
         report.sources_skipped.append("ddg_brave")
+    report.duration_per_source["ddg_brave"] = round(time.monotonic() - _t_src, 2)
 
     # ── Consolidation pass ─────────────────────────────────────────────────
     try:
