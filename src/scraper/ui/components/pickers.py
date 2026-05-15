@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,34 @@ _SECTORS_TOML = (
     / "references"
     / "sectors.toml"
 )
+
+_KBO_ZIP_DIR = Path(__file__).parents[4] / "KBO_zip"
+_KBO_ZIP_RE = re.compile(
+    r"^KboOpenData_\d+_(\d{4})_(\d{2})_(\d{2})_(Full|Update)\.zip$",
+    re.IGNORECASE,
+)
+
+
+def find_kbo_zips(base_dir: Path | None = None) -> list[tuple[Path, str]]:
+    """Return [(zip_path, display_label), ...] sorted by mtime desc.
+
+    Display label format: "YYYY-MM-DD (Full|Update)".
+    Returns [] when the folder is missing, empty, or has no matching files.
+    """
+    folder = base_dir if base_dir is not None else _KBO_ZIP_DIR
+    if not folder.is_dir():
+        return []
+    matches: list[tuple[Path, str, float]] = []
+    for p in folder.iterdir():
+        if not p.is_file():
+            continue
+        m = _KBO_ZIP_RE.match(p.name)
+        if not m:
+            continue
+        label = f"{m.group(1)}-{m.group(2)}-{m.group(3)} ({m.group(4).title()})"
+        matches.append((p, label, p.stat().st_mtime))
+    matches.sort(key=lambda t: t[2], reverse=True)
+    return [(p, label) for p, label, _ in matches]
 
 
 def load_sector_options() -> list[tuple[str, str]]:

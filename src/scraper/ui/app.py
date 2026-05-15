@@ -17,7 +17,7 @@ def main() -> None:
     with st.sidebar:
         st.header("Search settings")
 
-        from scraper.ui.components.pickers import load_sector_options
+        from scraper.ui.components.pickers import find_kbo_zips, load_sector_options
 
         sector_options = load_sector_options()
         sector_labels = [f"{display}" for _, display in sector_options]
@@ -33,11 +33,34 @@ def main() -> None:
         city = st.text_input("City", value="Antwerpen")
         lang = st.radio("Language", ["NL", "FR"], horizontal=True)
         max_pages = st.slider("Pages to scan", 1, 25, 5)
-        use_fixture = st.checkbox("Use fixture (test data)", value=False)
+
+        st.markdown("---")
+        st.subheader("KBO Open Data dump")
+        zip_options = find_kbo_zips()
+        selected_zip_path = None
+        if zip_options:
+            zip_labels = [label for _, label in zip_options]
+            zip_idx = st.selectbox(
+                "Select monthly dump",
+                range(len(zip_labels)),
+                format_func=lambda i: zip_labels[i],
+            )
+            selected_zip_path = zip_options[zip_idx][0]
+        else:
+            st.warning(
+                "No KBO ZIPs found in `KBO_zip/`. "
+                "Place a `KboOpenData_NNNN_YYYY_MM_DD_Full.zip` there to enable "
+                "real-KBO enrichment (kbopub, NBB). Without it only goudengids "
+                "placeholders will be returned."
+            )
 
         st.markdown("---")
         st.subheader("Sources")
-        do_kbo = st.checkbox("KBO Open Data", value=True)
+        do_kbo = st.checkbox(
+            "KBO Open Data",
+            value=selected_zip_path is not None,
+            disabled=selected_zip_path is None,
+        )
         do_goud = st.checkbox("Goudengids / Pagesdor", value=True)
         do_kbopub = st.checkbox("kbopub function holders", value=True)
         do_nbb = st.checkbox("NBB financials", value=True)
@@ -69,8 +92,9 @@ def main() -> None:
             sector_slug=nl_slug,
             max_pages=max_pages,
             lang="nl" if lang == "NL" else "fr",
-            use_fixture=use_fixture,
-            do_kbo_dump=do_kbo,
+            use_fixture=False,
+            fixture_zip_path=selected_zip_path,
+            do_kbo_dump=do_kbo and selected_zip_path is not None,
             do_goudengids=do_goud,
             do_kbopub=do_kbopub,
             do_nbb=do_nbb,
