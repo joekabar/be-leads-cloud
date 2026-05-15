@@ -5,121 +5,121 @@
 [elektriciens]
 nl_slug = "elektriciens"
 fr_slug = "electriciens"
-display = "Electricians"
+display = "Elektriciens"
 emoji = "⚡"
 
 [loodgieters]
 nl_slug = "loodgieters"
 fr_slug = "plombiers"
-display = "Plumbers"
+display = "Loodgieters"
 emoji = "🔧"
 
 [schilders]
 nl_slug = "schilders"
 fr_slug = "peintres"
-display = "Painters"
+display = "Schilders"
 emoji = "🎨"
 
 [metselaars]
 nl_slug = "metselaars"
 fr_slug = "macons"
-display = "Masons / Bricklayers"
+display = "Metselaars"
 emoji = "🧱"
 
 [dakdekkers]
 nl_slug = "dakdekkers"
 fr_slug = "couvreurs"
-display = "Roofers"
+display = "Dakdekkers"
 emoji = "🏠"
 
 [timmerlieden]
 nl_slug = "timmerlieden"
 fr_slug = "charpentiers"
-display = "Carpenters"
+display = "Timmerlieden"
 emoji = "🪚"
 
 [schrijnwerkers]
 nl_slug = "schrijnwerkers"
 fr_slug = "menuisiers"
-display = "Joiners / Woodworkers"
+display = "Schrijnwerkers"
 emoji = "🚪"
 
 [vloerleggers]
 nl_slug = "vloerleggers"
 fr_slug = "poseurs-de-sols"
-display = "Floor Layers"
+display = "Vloerleggers"
 emoji = "🪵"
 
 [glaszetters]
 nl_slug = "glaszetters"
 fr_slug = "vitriers"
-display = "Glaziers"
+display = "Glaszetters"
 emoji = "🪟"
 
 [tegelzetters]
 nl_slug = "tegelzetters"
 fr_slug = "carreleurs"
-display = "Tile Layers"
+display = "Tegelzetters"
 emoji = "🔲"
 
 [verwarmingsinstallateurs]
 nl_slug = "verwarmingsinstallateurs"
 fr_slug = "chauffagistes"
-display = "Heating Installers"
+display = "Verwarmingsinstallateurs"
 emoji = "🔥"
 
 [airco-installateurs]
 nl_slug = "airco-installateurs"
 fr_slug = "installateurs-climatisation"
-display = "Air Conditioning Installers"
+display = "Airco-installateurs"
 emoji = "❄️"
 
 [sanitair]
 nl_slug = "sanitair"
 fr_slug = "sanitaires"
-display = "Sanitary / Plumbing Fixtures"
+display = "Sanitair"
 emoji = "🚿"
 
 [isolatiebedrijven]
 nl_slug = "isolatiebedrijven"
 fr_slug = "entreprises-isolation"
-display = "Insulation Companies"
+display = "Isolatiebedrijven"
 emoji = "🏗️"
 
 [tuinaanleggers]
 nl_slug = "tuinaanleggers"
 fr_slug = "paysagistes"
-display = "Landscapers"
+display = "Tuinaanleggers"
 emoji = "🌿"
 
 [tuincentra]
 nl_slug = "tuincentra"
 fr_slug = "jardineries"
-display = "Garden Centres"
+display = "Tuincentra"
 emoji = "🌱"
 
 [architecten]
 nl_slug = "architecten"
 fr_slug = "architectes"
-display = "Architects"
+display = "Architecten"
 emoji = "📐"
 
 [ingenieurs]
 nl_slug = "ingenieurs"
 fr_slug = "ingenieurs"
-display = "Engineering Firms"
+display = "Ingenieursbureaus"
 emoji = "⚙️"
 
 [notarissen]
 nl_slug = "notarissen"
 fr_slug = "notaires"
-display = "Notaries"
+display = "Notarissen"
 emoji = "📜"
 
 [advocaten]
 nl_slug = "advocaten"
 fr_slug = "avocats"
-display = "Lawyers"
+display = "Advocaten"
 emoji = "⚖️"
 
 [accountants]
@@ -131,49 +131,49 @@ emoji = "📊"
 [belastingconsulenten]
 nl_slug = "belastingconsulenten"
 fr_slug = "conseillers-fiscaux"
-display = "Tax Consultants"
+display = "Belastingconsulenten"
 emoji = "💰"
 
 [managementconsulenten]
 nl_slug = "managementconsulenten"
 fr_slug = "consultants-management"
-display = "Management Consultants"
+display = "Managementconsulenten"
 emoji = "📈"
 
 [huisartsen]
 nl_slug = "huisartsen"
 fr_slug = "medecins-generalistes"
-display = "General Practitioners"
+display = "Huisartsen"
 emoji = "👨‍⚕️"
 
 [tandartsen]
 nl_slug = "tandartsen"
 fr_slug = "dentistes"
-display = "Dentists"
+display = "Tandartsen"
 emoji = "🦷"
 
 [apothekers]
 nl_slug = "apothekers"
 fr_slug = "pharmacies"
-display = "Pharmacists"
+display = "Apothekers"
 emoji = "💊"
 
 [dierenartsen]
 nl_slug = "dierenartsen"
 fr_slug = "veterinaires"
-display = "Veterinarians"
+display = "Dierenartsen"
 emoji = "🐾"
 
 [kinesitherapeuten]
 nl_slug = "kinesitherapeuten"
 fr_slug = "kinesitherapeutes"
-display = "Physiotherapists"
+display = "Kinesitherapeuten"
 emoji = "🤸"
 
 [opticiens]
 nl_slug = "opticiens"
 fr_slug = "opticiens"
-display = "Opticians"
+display = "Opticiens"
 emoji = "👓"
 
 [restaurants]
@@ -185,121 +185,121 @@ emoji = "🍽️"
 [bakkers]
 nl_slug = "bakkers"
 fr_slug = "boulangeries"
-display = "Bakeries"
+display = "Bakkers"
 emoji = "🥖"
 
 [slagers]
 nl_slug = "slagers"
 fr_slug = "boucheries"
-display = "Butchers"
+display = "Slagers"
 emoji = "🥩"
 
 [traiteurs]
 nl_slug = "traiteurs"
 fr_slug = "traiteurs"
-display = "Caterers"
+display = "Traiteurs"
 emoji = "🥗"
 
 [bloemisten]
 nl_slug = "bloemisten"
 fr_slug = "fleuristes"
-display = "Florists"
+display = "Bloemisten"
 emoji = "💐"
 
 [kappers]
 nl_slug = "kappers"
 fr_slug = "coiffeurs"
-display = "Hairdressers"
+display = "Kappers"
 emoji = "✂️"
 
 [schoonheidsspecialisten]
 nl_slug = "schoonheidsspecialisten"
 fr_slug = "estheticiennes"
-display = "Beauty Specialists"
+display = "Schoonheidsspecialisten"
 emoji = "💅"
 
 [autogarages]
 nl_slug = "autogarages"
 fr_slug = "garages"
-display = "Car Garages"
+display = "Autogarages"
 emoji = "🔩"
 
 [carrosserieherstellers]
 nl_slug = "carrosserieherstellers"
 fr_slug = "carrosseries"
-display = "Body Shops"
+display = "Carrosserieherstellers"
 emoji = "🚗"
 
 [autohandelaars]
 nl_slug = "autohandelaars"
 fr_slug = "concessionnaires"
-display = "Car Dealers"
+display = "Autohandelaars"
 emoji = "🚘"
 
 [transportbedrijven]
 nl_slug = "transportbedrijven"
 fr_slug = "entreprises-de-transport"
-display = "Road Freight / Transport"
+display = "Transportbedrijven"
 emoji = "🚛"
 
 [verhuisbedrijven]
 nl_slug = "verhuisbedrijven"
 fr_slug = "demenageurs"
-display = "Moving Companies"
+display = "Verhuisbedrijven"
 emoji = "📦"
 
 [taxidiensten]
 nl_slug = "taxidiensten"
 fr_slug = "taxis"
-display = "Taxi Services"
+display = "Taxidiensten"
 emoji = "🚕"
 
 [drukkerijen]
 nl_slug = "drukkerijen"
 fr_slug = "imprimeries"
-display = "Printers / Print Shops"
+display = "Drukkerijen"
 emoji = "🖨️"
 
 [reclamebureaus]
 nl_slug = "reclamebureaus"
 fr_slug = "agences-publicite"
-display = "Advertising Agencies"
+display = "Reclamebureaus"
 emoji = "📢"
 
 [fotografen]
 nl_slug = "fotografen"
 fr_slug = "photographes"
-display = "Photographers"
+display = "Fotografen"
 emoji = "📷"
 
 [informaticabedrijven]
 nl_slug = "informaticabedrijven"
 fr_slug = "societes-informatique"
-display = "IT Companies"
+display = "Informaticabedrijven"
 emoji = "💻"
 
 [telecomdiensten]
 nl_slug = "telecomdiensten"
 fr_slug = "telecoms"
-display = "Telecom Services"
+display = "Telecomdiensten"
 emoji = "📡"
 
 [banken]
 nl_slug = "banken"
 fr_slug = "banques"
-display = "Banks"
+display = "Banken"
 emoji = "🏦"
 
 [verzekeringsmaatschappijen]
 nl_slug = "verzekeringsmaatschappijen"
 fr_slug = "assurances"
-display = "Insurance Companies"
+display = "Verzekeringsmaatschappijen"
 emoji = "🛡️"
 
 [vastgoedmakelaars]
 nl_slug = "vastgoedmakelaars"
 fr_slug = "agences-immobilieres"
-display = "Real Estate Agents"
+display = "Vastgoedmakelaars"
 emoji = "🏘️"
 
 [hotels]
@@ -317,89 +317,89 @@ emoji = "⛺"
 [supermarkten]
 nl_slug = "supermarkten"
 fr_slug = "supermarches"
-display = "Supermarkets"
+display = "Supermarkten"
 emoji = "🛒"
 
 [kledingwinkels]
 nl_slug = "kledingwinkels"
 fr_slug = "magasins-vetements"
-display = "Clothing Stores"
+display = "Kledingwinkels"
 emoji = "👗"
 
 [schoenenwinkels]
 nl_slug = "schoenenwinkels"
 fr_slug = "magasins-chaussures"
-display = "Shoe Stores"
+display = "Schoenenwinkels"
 emoji = "👟"
 
 [boekhandels]
 nl_slug = "boekhandels"
 fr_slug = "librairies"
-display = "Bookshops"
+display = "Boekhandels"
 emoji = "📚"
 
 [schoonmaakbedrijven]
 nl_slug = "schoonmaakbedrijven"
 fr_slug = "entreprises-nettoyage"
-display = "Cleaning Companies"
+display = "Schoonmaakbedrijven"
 emoji = "🧹"
 
 [bewakingsdiensten]
 nl_slug = "bewakingsdiensten"
 fr_slug = "services-securite"
-display = "Security Services"
+display = "Bewakingsdiensten"
 emoji = "🔒"
 
 [vertalingsbureaus]
 nl_slug = "vertalingsbureaus"
 fr_slug = "bureaux-traduction"
-display = "Translation Agencies"
+display = "Vertaalbureaus"
 emoji = "🌐"
 
 [uitzendbureaus]
 nl_slug = "uitzendbureaus"
 fr_slug = "agences-interim"
-display = "Temp Agencies"
+display = "Uitzendbureaus"
 emoji = "👥"
 
 [scholen]
 nl_slug = "scholen"
 fr_slug = "ecoles"
-display = "Schools"
+display = "Scholen"
 emoji = "🏫"
 
 [kinderdagverblijven]
 nl_slug = "kinderdagverblijven"
 fr_slug = "creches"
-display = "Nurseries / Crèches"
+display = "Kinderdagverblijven"
 emoji = "👶"
 
 [begrafenisondernemingen]
 nl_slug = "begrafenisondernemingen"
 fr_slug = "pompes-funebres"
-display = "Funeral Homes"
+display = "Begrafenisondernemingen"
 emoji = "🕯️"
 
 [recyclagebedrijven]
 nl_slug = "recyclagebedrijven"
 fr_slug = "entreprises-recyclage"
-display = "Recycling Companies"
+display = "Recyclagebedrijven"
 emoji = "♻️"
 
 [zonnepaneleninstallateurs]
 nl_slug = "zonnepaneleninstallateurs"
 fr_slug = "installateurs-panneaux-solaires"
-display = "Solar Panel Installers"
+display = "Zonnepaneelinstallateurs"
 emoji = "☀️"
 
 [cateringbedrijven]
 nl_slug = "cateringbedrijven"
 fr_slug = "entreprises-catering"
-display = "Catering Companies"
+display = "Cateringbedrijven"
 emoji = "🍱"
 
 [marktzaken]
 nl_slug = "marktzaken"
 fr_slug = "marches"
-display = "Market Stalls / Street Food"
+display = "Marktkramen"
 emoji = "🛍️"
