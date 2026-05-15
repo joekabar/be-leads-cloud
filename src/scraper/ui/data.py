@@ -88,15 +88,17 @@ async def fetch_results_for_run(
     """
     now = datetime.now(tz=UTC)
 
-    # Resolve NACE prefix first — needed for the KBO discovery query.
+    # Resolve NACE prefix and both language slugs — needed for KBO discovery.
     nace_prefix: str | None = None
+    sector_slugs: list[str] = []
     if sector:
         from scraper.pipeline.orchestrator import _SECTOR_NACE_PREFIXES, resolve_sector_slugs
 
         try:
-            nl_slug, _ = resolve_sector_slugs(sector)
+            nl_slug, fr_slug = resolve_sector_slugs(sector)
             prefixes = _SECTOR_NACE_PREFIXES.get(nl_slug)
             nace_prefix = prefixes[0] if prefixes else None
+            sector_slugs = [s for s in [nl_slug, fr_slug] if s]
         except ValueError:
             nace_prefix = None
 
@@ -110,11 +112,15 @@ async def fetch_results_for_run(
             "    WHERE field = 'nace_code' AND value->>'code' LIKE $2"
             ") "
             "UNION "
-            # Goudengids KBOs are sector-filtered at scrape time; include by city alone.
-            "SELECT DISTINCT kbo_number FROM observations "
-            "WHERE source = 'goudengids' AND field = 'address' AND value->>'city' ILIKE $1",
+            # Goudengids KBOs carry no NACE obs; scope them via run_log.sector_slug
+            # so companies scraped under a different sector run are excluded.
+            "SELECT DISTINCT o.kbo_number FROM observations o "
+            "JOIN run_log rl ON o.run_id = rl.run_id "
+            "WHERE o.source = 'goudengids' AND o.field = 'address' "
+            "AND o.value->>'city' ILIKE $1 AND rl.sector_slug = ANY($3::text[])",
             f"%{city}%",
             f"{nace_prefix}%",
+            sector_slugs,
         )
     elif city:
         kbo_rows = await pool.fetch(

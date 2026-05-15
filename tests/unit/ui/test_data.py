@@ -219,6 +219,33 @@ class TestFetchResultsForRun:
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="elektriciens"))
         assert len(rows) == 1
 
+    def test_goudengids_discovery_scoped_to_sector(self) -> None:
+        """KBO discovery query must pass sector slugs so goudengids results from
+        a different sector run are not returned (prevents cross-run contamination)."""
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "9545074724"}  # SANIFLEX-style placeholder
+        obs_records = [
+            _mock_record(
+                kbo_number="9545074724",
+                field="address",
+                value={"street": "X", "postal_code": "8400", "city": "Oostende"},
+                source="goudengids",
+            ),
+        ]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="bakkers", city="oostende"))
+        # The discovery query (first fetch call) must include sector slugs as a
+        # positional arg so the JOIN on run_log.sector_slug filters out companies
+        # scraped under a different sector (e.g. loodgieters).
+        first_call_args = pool.fetch.call_args_list[0][0]  # (sql, city%, nace%, slugs)
+        assert len(first_call_args) == 4, (
+            "city+sector discovery query must have 4 positional args: "
+            "sql, city_pattern, nace_pattern, sector_slugs"
+        )
+        sector_slugs_arg = first_call_args[3]
+        assert "bakkers" in sector_slugs_arg, "NL slug must be in sector_slugs arg"
+        assert "boulangeries" in sector_slugs_arg, "FR slug must be in sector_slugs arg"
+
     def test_results_sorted_by_score_descending(self) -> None:
         pool = AsyncMock()
         kbo_records = [{"kbo_number": "0439401387"}, {"kbo_number": "0202239951"}]
