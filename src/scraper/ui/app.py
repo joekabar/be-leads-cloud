@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 
 import streamlit as st
 
@@ -162,11 +163,11 @@ def main() -> None:
             do_nbb=do_nbb,
             do_website=do_web,
             do_search=do_search,
+            nbb_subscription_key=os.environ.get("NBB_CBSO_API_KEY"),
+            brave_subscription_key=os.environ.get("BRAVE_SEARCH_API_KEY"),
         )
 
         try:
-            import os
-
             from scraper.db.pool import init_pool
             from scraper.pipeline.run import run
 
