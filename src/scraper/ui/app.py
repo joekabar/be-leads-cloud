@@ -231,7 +231,15 @@ def main() -> None:
 
         from scraper.ui.components.results_table import render_results_table
 
-        render_results_table(rows)
+        show_details = st.checkbox(
+            "Show detailed per-company expanders",
+            value=False,
+            help=(
+                "Renders an expandable card per row with summary, all "
+                "phones/emails, all directors, status, NACE, and per-source counts."
+            ),
+        )
+        render_results_table(rows, show_details_per_row=show_details)
 
     # ── Footer ────────────────────────────────────────────────────────────
     st.markdown("---")
