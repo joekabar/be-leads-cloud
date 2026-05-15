@@ -78,25 +78,17 @@ async def fetch_results_for_run(
     sector: str | None = None,
     city: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Pull rows for KBOs that received observations since *started_at*.
+    """Pull rows matching sector+city from all-time DB observations.
 
-    Uses the pipeline's started_at timestamp to scope results to the current
-    run, covering observations from all sources including consolidation
-    re-emissions (which have their own run_id and are otherwise invisible).
-    Optionally filter by NACE prefix (sector) and address city.
+    Uses city+NACE address joins for KBO discovery so that pre-loaded kbo_dump
+    data is visible regardless of when it was ingested. Falls back to run-scoped
+    *started_at* filtering when no city is provided (avoids a full table scan).
+    Goudengids KBOs (sector-filtered at scrape time) are always included via a
+    UNION branch so placeholder KBOs without NACE observations are not dropped.
     """
     now = datetime.now(tz=UTC)
 
-    # All KBOs touched during this pipeline run (any source).
-    kbo_rows = await pool.fetch(
-        "SELECT DISTINCT kbo_number FROM observations WHERE observed_at >= $1",
-        started_at,
-    )
-    kbos = [str(r["kbo_number"]).strip() for r in kbo_rows]
-    if not kbos:
-        return []
-
-    # Resolve NACE prefix for sector filter.
+    # Resolve NACE prefix first — needed for the KBO discovery query.
     nace_prefix: str | None = None
     if sector:
         from scraper.pipeline.orchestrator import _SECTOR_NACE_PREFIXES, resolve_sector_slugs
@@ -108,6 +100,39 @@ async def fetch_results_for_run(
         except ValueError:
             nace_prefix = None
 
+    # KBO discovery: use city+NACE join when both are known for efficiency.
+    if city and nace_prefix:
+        kbo_rows = await pool.fetch(
+            "SELECT DISTINCT kbo_number FROM observations "
+            "WHERE field = 'address' AND value->>'city' ILIKE $1 "
+            "AND kbo_number IN ("
+            "    SELECT DISTINCT kbo_number FROM observations "
+            "    WHERE field = 'nace_code' AND value->>'code' LIKE $2"
+            ") "
+            "UNION "
+            # Goudengids KBOs are sector-filtered at scrape time; include by city alone.
+            "SELECT DISTINCT kbo_number FROM observations "
+            "WHERE source = 'goudengids' AND field = 'address' AND value->>'city' ILIKE $1",
+            f"%{city}%",
+            f"{nace_prefix}%",
+        )
+    elif city:
+        kbo_rows = await pool.fetch(
+            "SELECT DISTINCT kbo_number FROM observations "
+            "WHERE field = 'address' AND value->>'city' ILIKE $1",
+            f"%{city}%",
+        )
+    else:
+        # No city — fall back to run-scoped query to avoid a full table scan.
+        kbo_rows = await pool.fetch(
+            "SELECT DISTINCT kbo_number FROM observations WHERE observed_at >= $1",
+            started_at,
+        )
+
+    kbos = [str(r["kbo_number"]).strip() for r in kbo_rows]
+    if not kbos:
+        return []
+
     result: list[dict[str, Any]] = []
     for kbo in kbos:
         obs_rows = await pool.fetch(
@@ -117,13 +142,16 @@ async def fetch_results_for_run(
         )
         obs_list = [_row_to_obs(r) for r in obs_rows]
 
-        # Sector filter via NACE code.
+        # Secondary NACE filter: exclude KBOs that have a NACE obs not matching the sector.
+        # KBOs without any NACE observation (goudengids placeholders) pass through.
         if nace_prefix:
             nace_obs = [o for o in obs_list if o.field == "nace_code"]
-            if not any(str(o.value.get("code", "")).startswith(nace_prefix) for o in nace_obs):
+            if nace_obs and not any(
+                str(o.value.get("code", "")).startswith(nace_prefix) for o in nace_obs
+            ):
                 continue
 
-        # City filter via address observation.
+        # Secondary city filter: safety check for KBOs that slipped through the join.
         if city:
             addr_obs = [o for o in obs_list if o.field == "address"]
             city_lower = city.lower()

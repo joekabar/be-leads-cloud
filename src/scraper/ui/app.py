@@ -100,21 +100,23 @@ def main() -> None:
                 indent=2,
             )
 
-            # Fetch results from DB
-            pool = asyncio.run(init_pool(db_url)) if db_url else None
-            if pool:
+            # Fetch results from DB — pool creation and use must share one event loop.
+            if db_url:
                 from scraper.ui.data import fetch_results_for_run
 
-                rows = asyncio.run(
-                    fetch_results_for_run(
-                        pool,
-                        report.started_at,
-                        sector=selected_sector_slug,
-                        city=city,
-                    )
-                )
-                asyncio.run(pool.close())
-                st.session_state["last_rows"] = rows
+                async def _fetch_results() -> list[dict[str, object]]:
+                    p = await init_pool(db_url)
+                    try:
+                        return await fetch_results_for_run(
+                            p,
+                            report.started_at,
+                            sector=selected_sector_slug,
+                            city=city,
+                        )
+                    finally:
+                        await p.close()
+
+                st.session_state["last_rows"] = asyncio.run(_fetch_results())
             else:
                 st.session_state["last_rows"] = []
 

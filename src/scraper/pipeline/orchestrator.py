@@ -34,17 +34,18 @@ _SECTORS_TOML = (
 )
 
 # Mapping from NL sector slug → NACE prefix(es) for kbo_dump filtering.
+# KBO Open Data stores NACE codes without dots (e.g. "43211", not "43.21").
 _SECTOR_NACE_PREFIXES: dict[str, list[str]] = {
-    "elektriciens": ["43.2"],
-    "loodgieters": ["43.22"],
-    "schilders": ["43.34"],
-    "metselaars": ["43.3"],
-    "dakdekkers": ["43.91"],
-    "timmerlieden": ["43.32"],
-    "garagisten": ["45.2"],
-    "bakkers": ["10.71"],
-    "slagers": ["10.13"],
-    "kappers": ["96.02"],
+    "elektriciens": ["432"],
+    "loodgieters": ["4322"],
+    "schilders": ["4334"],
+    "metselaars": ["433"],
+    "dakdekkers": ["4391"],
+    "timmerlieden": ["4332"],
+    "garagisten": ["452"],
+    "bakkers": ["1071"],
+    "slagers": ["1013"],
+    "kappers": ["9602"],
 }
 
 
@@ -146,6 +147,27 @@ async def _get_website_pairs(pool: asyncpg.Pool, since: datetime) -> list[tuple[
         since,
     )
     return [(str(r["kbo_number"]).strip(), r["url"]) for r in rows if r["url"]]
+
+
+async def _get_real_kbos_for_sector_city(
+    pool: asyncpg.Pool, nace_prefixes: list[str], city: str
+) -> list[str]:
+    """Return KBOs from kbo_dump matching sector NACE prefix(es) and city (all-time).
+
+    Used as fallback when the current pipeline run produced no new KBOs
+    (e.g. kbo_dump was skipped because no ZIP was provided).
+    """
+    rows = await pool.fetch(
+        "SELECT DISTINCT a.kbo_number FROM observations a "
+        "JOIN observations b ON a.kbo_number = b.kbo_number "
+        "WHERE a.source = 'kbo_dump' AND a.field = 'address' "
+        "AND a.value->>'city' ILIKE $1 "
+        "AND b.source = 'kbo_dump' AND b.field = 'nace_code' "
+        "AND b.value->>'code' LIKE ANY($2::text[])",
+        f"%{city}%",
+        [f"{p}%" for p in nace_prefixes],
+    )
+    return [str(r["kbo_number"]).strip() for r in rows]
 
 
 async def _get_placeholder_inputs(
@@ -276,13 +298,22 @@ async def run_pipeline(
             from scraper.sources.kbopub_html.ingester import ingest_kbos as kbopub_ingest
 
             real_kbos = await _get_real_kbos(pool, started_at)
+            skip_hours = 0
+            if not real_kbos:
+                # kbo_dump was skipped (no ZIP) — fall back to pre-loaded DB data.
+                nace_prefixes = _SECTOR_NACE_PREFIXES.get(config.sector_slug, [])
+                if nace_prefixes:
+                    real_kbos = await _get_real_kbos_for_sector_city(
+                        pool, nace_prefixes, config.city
+                    )
+                    skip_hours = 24  # don't re-scrape companies enriched in last 24 h
             if real_kbos:
                 kbopub_report = await kbopub_ingest(
                     real_kbos,
                     pool,
                     polite_client.limiter,
                     lang=config.lang,
-                    skip_recent_hours=0,
+                    skip_recent_hours=skip_hours,
                 )
                 report.sources_run.append("kbopub_html")
                 report.observations_inserted_per_source["kbopub_html"] = (

@@ -179,6 +179,46 @@ class TestFetchResultsForRun:
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, city="antwerpen"))
         assert len(rows) == 1
 
+    def test_nace_filter_passes_placeholder_kbo_with_no_nace_obs(self) -> None:
+        """Placeholder KBOs (no NACE data) must not be filtered out by sector filter."""
+        # Placeholder KBOs are exactly 10 digits starting with 9 (bypass mod-97 checksum).
+        placeholder = "9000000001"
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": placeholder}
+        obs_records = [
+            _mock_record(
+                kbo_number=placeholder,
+                field="name",
+                value={"text": "Elektro Janssen"},
+                source="goudengids",
+            ),
+        ]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="elektriciens"))
+        assert len(rows) == 1, "placeholder KBO with no NACE obs must not be filtered out"
+
+    def test_nace_filter_excludes_known_wrong_sector(self) -> None:
+        """KBOs with a NACE observation that doesn't match the sector are excluded."""
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [
+            _mock_record(field="nace_code", value={"code": "4711"}),  # retail, not electrician
+        ]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="elektriciens"))
+        assert rows == [], "company with non-matching NACE must be excluded"
+
+    def test_nace_filter_includes_matching_nace(self) -> None:
+        """KBOs whose NACE observation matches the sector prefix are included."""
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [
+            _mock_record(field="nace_code", value={"code": "43211"}),  # within 432 prefix (no dots)
+        ]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="elektriciens"))
+        assert len(rows) == 1
+
     def test_results_sorted_by_score_descending(self) -> None:
         pool = AsyncMock()
         kbo_records = [{"kbo_number": "0439401387"}, {"kbo_number": "0202239951"}]
