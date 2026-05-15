@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (UI review — gov.uk style theme, Approach B)
+- `.streamlit/config.toml`: Streamlit base theme (`#1D70B8` primary, `#F3F2F1` background, `#FFFFFF` surface, `#0B0C0C` text).
+- `src/scraper/ui/theme.py`: CSS module with `inject_theme()`. Covers: 5px Belgian flag accent bar (black/yellow/red), `#003078` headings with blue underline/border, square-cornered buttons, blue Run button, sidebar white surface, muted footer caption, gov.uk-style info box borders.
+- Sources section now collapsed by default — Run pipeline button visible without scrolling.
+- Idle hint replaced with muted grey text; no longer renders as a blue info box.
+- 7 unit tests in `tests/unit/ui/test_theme.py` covering CSS token presence and `inject_theme()` smoke.
+
 ### Fixed (UI review — NACE sector filter missing for 58 sectors)
 - `_SECTOR_NACE_PREFIXES` in `pipeline/orchestrator.py` only covered 10 construction/trade sectors. Any other sector (accountants, advocaten, restaurants, hotels, …) ran the KBO dump with no NACE filter, returning every company in the city. A search for "accountants · Aalst" produced 6437 results instead of ~50.
 - Added NACE prefixes for all 67 sectors across 8 groups: construction, automotive, food/hospitality, retail, professional services, healthcare, ICT, and other services.

@@ -8,7 +8,10 @@ import os
 
 import streamlit as st
 
+from scraper.ui.theme import inject_theme
+
 st.set_page_config(page_title="Belgian B2B Lead Generator", layout="wide")
+inject_theme()
 
 
 def main() -> None:
@@ -78,17 +81,17 @@ def main() -> None:
             )
 
         st.markdown("---")
-        st.subheader("Sources")
-        do_kbo = st.checkbox(
-            "KBO Open Data",
-            value=selected_zip_path is not None,
-            disabled=selected_zip_path is None,
-        )
-        do_goud = st.checkbox("Goudengids / Pagesdor", value=True)
-        do_kbopub = st.checkbox("kbopub function holders", value=True)
-        do_nbb = st.checkbox("NBB financials", value=True)
-        do_web = st.checkbox("Company websites", value=True)
-        do_search = st.checkbox("Search cross-validation", value=True)
+        with st.expander("Sources", expanded=False):
+            do_kbo = st.checkbox(
+                "KBO Open Data",
+                value=selected_zip_path is not None,
+                disabled=selected_zip_path is None,
+            )
+            do_goud = st.checkbox("Goudengids / Pagesdor", value=True)
+            do_kbopub = st.checkbox("kbopub function holders", value=True)
+            do_nbb = st.checkbox("NBB financials", value=True)
+            do_web = st.checkbox("Company websites", value=True)
+            do_search = st.checkbox("Search cross-validation", value=True)
 
         st.markdown("---")
         with st.expander("Filters", expanded=False):
@@ -138,7 +141,12 @@ def main() -> None:
         st.session_state["last_log"] = ""
 
     if not run_btn and st.session_state["last_report"] is None:
-        st.info("Configure your search in the sidebar and click **Run pipeline**.")
+        st.markdown(
+            '<p style="color:#505A5F;font-size:0.9rem;margin-top:1rem;">'
+            "Configure your search in the sidebar and click <strong>Run pipeline</strong>."
+            "</p>",
+            unsafe_allow_html=True,
+        )
 
     if run_btn:
         from scraper.pipeline.orchestrator import PipelineConfig, resolve_sector_slugs
