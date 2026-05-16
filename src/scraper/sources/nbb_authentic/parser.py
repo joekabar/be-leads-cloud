@@ -19,10 +19,7 @@ def _parse_belgian_number(s: str) -> float | None:
     s = s.strip()
     if not _BE_NUM_RE.match(s):
         return None
-    if "," in s:
-        cleaned = s.replace(".", "").replace(",", ".")
-    else:
-        cleaned = s.replace(".", "")
+    cleaned = s.replace(".", "").replace(",", ".") if "," in s else s.replace(".", "")
     try:
         return float(cleaned)
     except ValueError:

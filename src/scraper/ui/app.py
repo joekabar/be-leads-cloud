@@ -170,7 +170,7 @@ def main() -> None:
 
         db_url = os.environ.get("DATABASE_URL", "")
         all_rows: list[dict[str, object]] = []
-        last_report = None
+        last_report: object = None
         log_parts: list[str] = []
 
         for sector_slug in selected_sector_slugs:
@@ -223,10 +223,12 @@ def main() -> None:
 
                 if db_url:
                     from scraper.db.pool import init_pool
+                    from scraper.pipeline.orchestrator import PipelineReport
                     from scraper.ui.data import fetch_results_for_run
 
                     async def _fetch(
-                        _slug: str = sector_slug, _report=report
+                        _slug: str = sector_slug,
+                        _report: PipelineReport = report,
                     ) -> list[dict[str, object]]:
                         p = await init_pool(db_url)
                         try:
@@ -262,12 +264,12 @@ def main() -> None:
         st.session_state["last_rows"] = all_rows
         st.session_state["last_log"] = "\n\n".join(log_parts)
 
-    last_report: object = st.session_state.get("last_report")
+    last_report = st.session_state.get("last_report")
     if last_report is not None:
         from scraper.ui.components.diagnostics import render_diagnostics
 
         rows = st.session_state.get("last_rows", [])
-        render_diagnostics(last_report, rows)  # type: ignore[arg-type]
+        render_diagnostics(last_report, rows)
 
         log_text = st.session_state.get("last_log", "")
         if log_text:

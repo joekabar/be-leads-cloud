@@ -19,18 +19,11 @@ _REFERENCES_FIXTURES: dict[str, str] = {
     "0502699332": "0502699332_references_single.json",
 }
 
-_ACCOUNTING_FIXTURES: dict[str, dict[str, str]] = {
-    "0439401387": {
-        "2024-00000148": "0439401387_accounting_2024-00000148.json",
-        "2023-00000119": "0439401387_accounting_2023-00000119.json",
-        "2022-00000091": "0439401387_accounting_2022-00000091.json",
-    },
-    "0502699332": {
-        "2024-00012345": "0502699332_accounting_2024-00012345.json",
-    },
-}
+# Golden PDF used for all mocked PDF fetches — MICRO model, gives revenue + profit_loss (no employees)
+_PDF_FIXTURE = _GOLDEN / "0439401387_pdf_2024-00290653.pdf"
 
-_NBB_URL_RE = re.compile(r"/authentic/legalEntity/(\d+)/references(?:/([^/]+)/accountingData)?")
+_REFS_URL_RE = re.compile(r"/authentic/legalEntity/(\d+)/references$")
+_PDF_URL_RE = re.compile(r"/authentic/deposit/([^/]+)/accountingData$")
 
 
 def make_fast_limiter() -> HostLimiter:
@@ -38,27 +31,41 @@ def make_fast_limiter() -> HostLimiter:
     return HostLimiter(configs={}, default=fast)
 
 
+def _inject_accounting_url(ref: dict) -> dict:  # type: ignore[type-arg]
+    """Add accountingDataURL to a legacy camelCase reference dict."""
+    ref_num = ref.get("referenceNumber") or ref.get("ReferenceNumber", "")
+    url = f"https://ws.cbso.nbb.be/authentic/deposit/{ref_num}/accountingData"
+    return {**ref, "accountingDataURL": url}
+
+
 def nbb_side_effect(request: httpx.Request) -> httpx.Response:
     """Dispatch mock NBB CBSO responses based on URL path."""
-    m = _NBB_URL_RE.search(str(request.url))
-    if not m:
-        return httpx.Response(404)
+    path = request.url.path
 
-    kbo = m.group(1)
-    ref_num = m.group(2)
-
-    if ref_num is None:
+    # References list endpoint — inject accountingDataURL into each entry
+    m_refs = _REFS_URL_RE.search(path)
+    if m_refs:
+        kbo = m_refs.group(1)
         filename = _REFERENCES_FIXTURES.get(kbo)
         if filename:
-            data = json.loads((_GOLDEN / filename).read_text())
-            return httpx.Response(200, json=data)
+            raw = json.loads((_GOLDEN / filename).read_text())
+            if isinstance(raw, dict) and "references" in raw:
+                patched = {"references": [_inject_accounting_url(r) for r in raw["references"]]}
+            elif isinstance(raw, list):
+                patched = [_inject_accounting_url(r) for r in raw]
+            else:
+                patched = raw
+            return httpx.Response(200, json=patched)
         return httpx.Response(200, json={"references": []})
-    else:
-        filename = _ACCOUNTING_FIXTURES.get(kbo, {}).get(ref_num)
-        if filename:
-            data = json.loads((_GOLDEN / filename).read_text())
-            return httpx.Response(200, json=data)
+
+    # PDF accounting data endpoint
+    m_pdf = _PDF_URL_RE.search(path)
+    if m_pdf:
+        if _PDF_FIXTURE.exists():
+            return httpx.Response(200, content=_PDF_FIXTURE.read_bytes())
         return httpx.Response(404)
+
+    return httpx.Response(404)
 
 
 @pytest.fixture()

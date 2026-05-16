@@ -11,7 +11,7 @@ from __future__ import annotations
 # Text:         #0B0C0C
 # Text muted:   #505A5F
 # Score high:   #00703C  (≥ 0.75)
-# Score mid:    #F47738  (0.50–0.75)
+# Score mid:    #F47738  (0.50-0.75)
 # Score low:    #D4351C  (< 0.50)
 # Flag black:   #000000
 # Flag yellow:  #FAD205

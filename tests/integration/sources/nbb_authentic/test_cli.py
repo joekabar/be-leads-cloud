@@ -56,6 +56,7 @@ async def test_run_success_prints_json(
     last_line = [ln for ln in out.splitlines() if ln.strip()][-1]
     data = json.loads(last_line)
     assert data["kbos_processed"] == 1
-    assert data["observations_inserted"] == 9
+    # MICRO PDF: revenue (9900 proxy) + profit_loss per reference, no employees → 2 obs × 3 refs = 6
+    assert data["observations_inserted"] == 6
     assert data["references_total"] == 3
     assert "duration_s" in data

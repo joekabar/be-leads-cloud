@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (NBB ingester — transient errors abort entire source)
+
+`RetriesExhaustedError` and `TransientServerError` from a single KBO (e.g. NBB returning
+5xx for some companies) propagated uncaught through `ingest_kbos`, causing the entire
+`nbb_authentic` source to be marked failed in the pipeline report.
+
+- `ingester.py` — both exceptions are now caught per-KBO; the KBO is logged as a warning
+  and skipped; the batch continues. A new `kbos_transient_error` counter on `NbbReport`
+  tracks how many KBOs hit this path.
+- `tests/unit/sources/nbb_authentic/test_ingester.py` — new file with 4 unit tests
+  covering: transient error on references (skipped, counter incremented), auth error
+  re-raised, not-found counted, transient error on PDF fetch (KBO still counted as processed).
+
+### Fixed (NBB integration tests — PDF mock path)
+
+Integration tests in `tests/integration/sources/nbb_authentic/` mocked the old JSON-based
+`/accountingData` path.  Since the ingester now fetches PDFs via `AccountingDataURL`, the
+mock was returning no data and `observations_inserted` was always 0.
+
+- `conftest.py` — `nbb_side_effect` now injects `accountingDataURL` into every reference
+  (pointing to `/authentic/deposit/{ref}/accountingData`) and returns the MICRO golden PDF
+  for all PDF fetches.  The old accounting-JSON path is removed.
+- `test_ingester.py` — observation counts updated to match MICRO PDF output (2 obs per
+  reference: `revenue_YYYY` + `profit_YYYY`; no `employees_YYYY` since MICRO filings don't
+  disclose headcount).
+- `test_cli.py` — `observations_inserted` assertion updated from 9 → 6.
+
+### Fixed (ruff / mypy — pre-existing lint errors)
+
+- `kbopub_html/parser.py` — moved `from datetime import date` and `from typing import Literal`
+  above the module-level `_FOOTNOTE_RE` regex (E402).
+- `nbb_authentic/parser.py` — simplified if-else to ternary in `_parse_belgian_number` (SIM108).
+- `ui/theme.py` — replaced EN DASH with hyphen in score range comment (RUF003).
+- `ui/app.py` — annotated `last_report: object = None` to eliminate `no-redef`; added
+  `PipelineReport` import for the `_fetch` closure parameter; removed stale
+  `# type: ignore[arg-type]` on `render_diagnostics` call.
+
 ### Fixed (NBB CBSO — PDF-based accounting data extraction)
 
 **Root cause:** The NBB `/accountingData` endpoint returns `application/pdf`, not JSON.

@@ -10,7 +10,12 @@ from stdnum.be import vat as be_vat
 
 from scraper.db.repositories.observations import ObservationsRepo
 from scraper.db.repositories.runs import RunsRepo
-from scraper.lib.errors import NbbAuthError, NbbNotFoundError
+from scraper.lib.errors import (
+    NbbAuthError,
+    NbbNotFoundError,
+    RetriesExhaustedError,
+    TransientServerError,
+)
 from scraper.sources.nbb_authentic.parser import parse_accounting_pdf
 from scraper.sources.nbb_authentic.transformer import filing_to_observations
 
@@ -27,6 +32,7 @@ logger = structlog.get_logger()
 class NbbReport:
     kbos_processed: int = 0
     kbos_not_found: int = 0
+    kbos_transient_error: int = 0
     references_total: int = 0
     observations_inserted: int = 0
     duration_s: float = 0.0
@@ -62,6 +68,7 @@ async def ingest_kbos(
     Idempotency: KBOs with an nbb_authentic observation within skip_recent_hours are skipped.
     NbbAuthError aborts the entire batch — the key is broken, stop immediately.
     NbbNotFoundError is counted and skipped; the batch continues.
+    RetriesExhaustedError/TransientServerError on a single KBO are logged and skipped.
     """
     t0 = time.monotonic()
     report = NbbReport()
@@ -106,6 +113,10 @@ async def ingest_kbos(
             report.kbos_not_found += 1
             log.warning("kbo_not_found_in_nbb", kbo=kbo)
             continue
+        except (RetriesExhaustedError, TransientServerError) as exc:
+            report.kbos_transient_error += 1
+            log.warning("nbb_transient_error_skipping_kbo", kbo=kbo, error=str(exc))
+            continue
 
         if years_back is not None:
             min_year = today.year - years_back
@@ -121,6 +132,14 @@ async def ingest_kbos(
                 pdf_bytes = await nbb_client.get_accounting_pdf(ref.accounting_data_url)
             except NbbNotFoundError:
                 log.warning("accounting_pdf_not_found", kbo=kbo, ref=ref.reference_number)
+                continue
+            except (RetriesExhaustedError, TransientServerError) as exc:
+                log.warning(
+                    "nbb_pdf_transient_error_skipping",
+                    kbo=kbo,
+                    ref=ref.reference_number,
+                    error=str(exc),
+                )
                 continue
             filing = parse_accounting_pdf(ref, pdf_bytes)
             obs = filing_to_observations(kbo, filing, run_id, snapshot_at)
@@ -140,6 +159,7 @@ async def ingest_kbos(
         "nbb_ingest_finished",
         kbos_processed=report.kbos_processed,
         kbos_not_found=report.kbos_not_found,
+        kbos_transient_error=report.kbos_transient_error,
         references_total=report.references_total,
         observations_inserted=report.observations_inserted,
         duration_s=round(report.duration_s, 2),

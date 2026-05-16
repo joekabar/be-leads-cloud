@@ -17,14 +17,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-
-# Footnote marker appended to role labels on some kbopub pages: "Zaakvoerder(1)"
-_FOOTNOTE_RE = re.compile(r"\s*\(\d+\)\s*$")
 from datetime import date
 from typing import Literal
 
 import structlog
 from bs4 import BeautifulSoup, Tag
+
+# Footnote marker appended to role labels on some kbopub pages: "Zaakvoerder(1)"
+_FOOTNOTE_RE = re.compile(r"\s*\(\d+\)\s*$")
 
 logger = structlog.get_logger()
 
