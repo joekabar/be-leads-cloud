@@ -270,11 +270,38 @@ class TestFetchResultsForRun:
         pool = AsyncMock()
         kbo_record = {"kbo_number": "0439401387"}
         obs_records = [
-            _mock_record(field="nace_code", value={"code": "43211"}),  # within 432 prefix (no dots)
+            _mock_record(
+                field="nace_code", value={"code": "43211"}
+            ),  # within 4321 prefix (no dots)
         ]
         pool.fetch.side_effect = [[kbo_record], obs_records]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="elektriciens"))
         assert len(rows) == 1
+
+    def test_nace_filter_includes_second_prefix(self) -> None:
+        """Company matching the *second* sector prefix (not just the first) must be included."""
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [
+            # informaticabedrijven has prefixes ["620", "631", "582"].
+            # 63110 = data processing / hosting — matches "631" prefix.
+            _mock_record(field="nace_code", value={"code": "63110"}),
+        ]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="informaticabedrijven"))
+        assert len(rows) == 1, "company with NACE 63110 (second prefix) must not be filtered out"
+
+    def test_nace_filter_includes_third_prefix(self) -> None:
+        """Company matching the *third* sector prefix must be included."""
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [
+            # informaticabedrijven prefix "582" covers software publishing (58210, 58290).
+            _mock_record(field="nace_code", value={"code": "58290"}),
+        ]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="informaticabedrijven"))
+        assert len(rows) == 1, "company with NACE 58290 (third prefix) must not be filtered out"
 
     def test_postcode_filter_excludes_non_matching(self) -> None:
         """Companies whose address postal_code is not in the postcodes set are excluded."""

@@ -129,10 +129,11 @@ def _build_filter_set(
 
     keep: set[str] = set()
     if sector_filter:
-        normalised = {s.strip() for s in sector_filter}
+        normalised = [s.strip() for s in sector_filter]
         for act_row in iter_activities(zip_path):
-            division = act_row.nace_code.split(".")[0]
-            if division in normalised or act_row.nace_code in normalised:
+            # KBO Open Data stores NACE codes without dots (e.g. "62019", not "62.019").
+            # Use startswith so a 3-digit prefix "620" matches "62019", "62090", etc.
+            if any(act_row.nace_code.startswith(p) for p in normalised):
                 keep.add(act_row.entity_number)
 
     if city_filter:

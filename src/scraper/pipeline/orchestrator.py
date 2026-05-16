@@ -39,25 +39,28 @@ _SECTORS_TOML = (
 _SECTOR_NACE_PREFIXES: dict[str, list[str]] = {
     # Construction & installation
     "dakdekkers": ["4391"],
-    "elektriciens": ["432"],
-    "glaszetters": ["4334", "4339"],
+    "elektriciens": ["4321"],  # 43211=electrical systems, 43212=alarm/signalling
+    "glaszetters": ["4334"],  # 43340=painting and glazing (includes glazing)
     "isolatiebedrijven": ["4329", "4399"],
-    "loodgieters": ["4322"],
-    "metselaars": ["433"],
-    "schilders": ["4334"],
-    "schrijnwerkers": ["4332"],
-    "tegelzetters": ["4333"],
-    "timmerlieden": ["4332"],
-    "vloerleggers": ["4333"],
+    "loodgieters": ["4322"],  # 43220=plumbing, heating, air-conditioning
+    "metselaars": [
+        "4120",
+        "4399",
+    ],  # 4120=general building construction (incl. masonry); 4399=other specialised
+    "schilders": ["4334"],  # 43340=painting and glazing
+    "schrijnwerkers": ["4332"],  # 43320=joinery installation
+    "tegelzetters": ["4333"],  # 43330=floor and wall covering
+    "timmerlieden": ["4332"],  # 43320=joinery installation (on-site carpentry)
+    "vloerleggers": ["4333"],  # 43330=floor and wall covering
     "zonnepaneleninstallateurs": ["4321"],
     "airco-installateurs": ["4322"],
     "sanitair": ["4322"],
     "verwarmingsinstallateurs": ["4322"],
     # Automotive
-    "autogarages": ["4520"],
+    "autogarages": ["4520"],  # 45201/45202=maintenance and repair of motor vehicles
     "autohandelaars": ["4511", "4519"],
     "carrosserieherstellers": ["4520"],
-    "garagisten": ["452"],
+    "garagisten": ["4520"],  # 45201/45202 — same as autogarages
     # Food & hospitality
     "bakkers": ["1071"],
     "cateringbedrijven": ["5621", "5629"],
@@ -98,7 +101,11 @@ _SECTOR_NACE_PREFIXES: dict[str, list[str]] = {
     "tandartsen": ["8623"],
     # ICT & media
     "fotografen": ["7420"],
-    "informaticabedrijven": ["620", "631"],
+    "informaticabedrijven": [
+        "620",
+        "631",
+        "582",
+    ],  # 620x=programming/consultancy, 631x=hosting/portals, 582x=software publishing
     "telecomdiensten": ["61"],
     # Other services
     "banken": ["641", "642"],

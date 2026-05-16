@@ -58,10 +58,23 @@ class TestNacePrefixCoverage:
             ("transportbedrijven", "4941"),
             ("tuinaanleggers", "8130"),
             ("informaticabedrijven", "620"),
+            ("informaticabedrijven", "631"),
+            ("informaticabedrijven", "582"),
             ("zonnepaneleninstallateurs", "4321"),
+            ("elektriciens", "4321"),
+            ("metselaars", "4120"),
+            ("garagisten", "4520"),
         ],
     )
     def test_known_sector_prefix(self, sector: str, expected_prefix: str) -> None:
         assert expected_prefix in _SECTOR_NACE_PREFIXES[sector], (
             f"{sector} should include prefix {expected_prefix}"
         )
+
+    def test_elektriciens_does_not_include_plumbing_prefix(self) -> None:
+        """432 was the old prefix — too broad, overlaps with plumbing (4322)."""
+        assert "432" not in _SECTOR_NACE_PREFIXES["elektriciens"]
+
+    def test_metselaars_does_not_include_finishing_prefix(self) -> None:
+        """433 (building finishing) was wrong for bricklayers; must not be present."""
+        assert "433" not in _SECTOR_NACE_PREFIXES["metselaars"]

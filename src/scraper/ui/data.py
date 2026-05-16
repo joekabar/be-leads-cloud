@@ -162,8 +162,8 @@ async def fetch_results_for_run(
     """
     now = datetime.now(tz=UTC)
 
-    # Resolve NACE prefix and both language slugs — needed for KBO discovery.
-    nace_prefix: str | None = None
+    # Resolve NACE prefixes and both language slugs — needed for KBO discovery.
+    nace_prefixes: list[str] | None = None
     sector_slugs: list[str] = []
     if sector:
         from scraper.pipeline.orchestrator import _SECTOR_NACE_PREFIXES, resolve_sector_slugs
@@ -171,19 +171,20 @@ async def fetch_results_for_run(
         try:
             nl_slug, fr_slug = resolve_sector_slugs(sector)
             prefixes = _SECTOR_NACE_PREFIXES.get(nl_slug)
-            nace_prefix = prefixes[0] if prefixes else None
+            nace_prefixes = list(prefixes) if prefixes else None
             sector_slugs = [s for s in [nl_slug, fr_slug] if s]
         except ValueError:
-            nace_prefix = None
+            nace_prefixes = None
 
     # KBO discovery: use city+NACE join when both are known for efficiency.
-    if city and nace_prefix:
+    if city and nace_prefixes:
+        nace_patterns = [f"{p}%" for p in nace_prefixes]
         kbo_rows = await pool.fetch(
             "SELECT DISTINCT kbo_number FROM observations "
             "WHERE field = 'address' AND value->>'city' ILIKE $1 "
             "AND kbo_number IN ("
             "    SELECT DISTINCT kbo_number FROM observations "
-            "    WHERE field = 'nace_code' AND value->>'code' LIKE $2"
+            "    WHERE field = 'nace_code' AND value->>'code' LIKE ANY($2::text[])"
             ") "
             "UNION "
             # Goudengids KBOs carry no NACE obs; scope them via run_log.sector_slug
@@ -193,7 +194,7 @@ async def fetch_results_for_run(
             "WHERE o.source = 'goudengids' AND o.field = 'address' "
             "AND o.value->>'city' ILIKE $1 AND rl.sector_slug = ANY($3::text[])",
             f"%{city}%",
-            f"{nace_prefix}%",
+            nace_patterns,
             sector_slugs,
         )
     elif city:
@@ -224,10 +225,11 @@ async def fetch_results_for_run(
 
         # Secondary NACE filter: exclude KBOs that have a NACE obs not matching the sector.
         # KBOs without any NACE observation (goudengids placeholders) pass through.
-        if nace_prefix:
+        if nace_prefixes:
             nace_obs = [o for o in obs_list if o.field == "nace_code"]
             if nace_obs and not any(
-                str(o.value.get("code", "")).startswith(nace_prefix) for o in nace_obs
+                any(str(o.value.get("code", "")).startswith(p) for p in nace_prefixes)
+                for o in nace_obs
             ):
                 continue
 

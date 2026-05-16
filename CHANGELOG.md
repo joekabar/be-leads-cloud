@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (NACE sector filter — three root-cause bugs causing wrong results)
+
+**Bug 1 — kbo_dump prefix matching:** `_build_filter_set` in `kbo_dump/ingester.py` used `nace_code.split(".")[0]` to extract the "division", then compared it to the filter set with `in`. KBO Open Data stores NACE codes *without dots* (`"62019"`, not `"62.019"`), so `split(".")[0]` returned the full 5-digit code — meaning `"62019" in {"620"}` was always `False`. The kbo_dump therefore ingested 0 entities for any sector whose prefix is shorter than the full NACE code. Fixed by switching to `any(nace_code.startswith(p) for p in prefixes)`.
+
+**Bug 2 — results query used only first prefix:** `fetch_results_for_run` in `ui/data.py` resolved `nace_prefix = prefixes[0]` (a single string). The KBO discovery SQL used `LIKE $2` with that one string, and the secondary in-memory filter only checked `startswith(nace_prefix)`. Sectors with multiple prefixes (informaticabedrijven: `["620","631","582"]`; transportbedrijven: `["4941","4939","4942"]`; etc.) would drop all companies matching any prefix after the first. Fixed by computing `nace_patterns = [f"{p}%" for p in nace_prefixes]`, using `LIKE ANY($2::text[])` in SQL, and checking all prefixes in the secondary filter.
+
+**Bug 3 — incorrect NACE mappings for three sectors:**
+- `elektriciens`: was `"432"` (overlapped with plumbing `4322`, plastering `4331`). Corrected to `"4321"` (electrical installation only).
+- `metselaars`: was `"433"` (building *finishing* — plastering, joinery, painting). Bricklayers in Belgian KBO register under `4120` (general building construction) and `4399` (other specialised construction). Corrected to `["4120","4399"]`.
+- `garagisten`: was `"452"` (2-digit-equivalent 3-char prefix). Tightened to `"4520"`.
+- `informaticabedrijven`: added `"582"` (software publishing — 58210 custom software publishers, 58290 other).
+
+**Tests added:**
+- `tests/unit/sources/kbo_dump/test_ingester_build_filter.py` — 5 tests for `_build_filter_set`: exact match, 3-digit prefix against dotless 5-digit codes, multi-prefix union, no-filter returns None, sector+city intersection.
+- `tests/unit/ui/test_data.py` — `test_nace_filter_includes_second_prefix` and `test_nace_filter_includes_third_prefix` verify multi-prefix NACE pass-through.
+- `tests/unit/pipeline/test_sector_nace.py` — added spot-checks for corrected mappings and two negative assertions (`elektriciens` must not contain `"432"`, `metselaars` must not contain `"433"`).
+
 ### Added (UI review — gov.uk style theme, Approach B)
 - `.streamlit/config.toml`: Streamlit base theme (`#1D70B8` primary, `#F3F2F1` background, `#FFFFFF` surface, `#0B0C0C` text).
 - `src/scraper/ui/theme.py`: CSS module with `inject_theme()`. Covers: 5px Belgian flag accent bar (black/yellow/red), `#003078` headings with blue underline/border, square-cornered buttons, blue Run button, sidebar white surface, muted footer caption, gov.uk-style info box borders.
