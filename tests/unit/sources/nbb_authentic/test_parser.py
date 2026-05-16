@@ -8,6 +8,7 @@ from scraper.sources.nbb_authentic.parser import (
     FilingData,
     ReferenceRow,
     parse_accounting_data,
+    parse_accounting_pdf,
     parse_references,
 )
 
@@ -203,3 +204,128 @@ def test_parse_references_skips_malformed_entry_and_keeps_valid() -> None:
     refs = parse_references({"references": [valid, malformed]})
     assert len(refs) == 1
     assert refs[0].reference_number == "2024-00000148"
+
+
+# ---------------------------------------------------------------------------
+# Actual live API format: list with PascalCase keys + nested ExerciseDates
+# ---------------------------------------------------------------------------
+
+_LIVE_ITEM = {
+    "ReferenceNumber": "2024-00290653",
+    "DepositDate": "2024-07-26",
+    "ExerciseDates": {"startDate": "2023-01-01", "endDate": "2023-12-31"},
+    "ModelType": "m02-f",
+    "DepositType": "Initial",
+    "Language": "NL",
+    "Currency": "EUR",
+    "AccountingDataURL": "https://ws.cbso.nbb.be/authentic/deposit/2024-00290653/accountingData",
+}
+
+
+def test_parse_references_accepts_live_list_format() -> None:
+    refs = parse_references([_LIVE_ITEM])
+    assert len(refs) == 1
+    r = refs[0]
+    assert r.reference_number == "2024-00290653"
+    assert r.deposit_date.isoformat() == "2024-07-26"
+    assert r.exercise_start.isoformat() == "2023-01-01"
+    assert r.exercise_end.isoformat() == "2023-12-31"
+    assert r.language == "NL"
+    assert r.deposit_type == "Initial"
+
+
+def test_parse_references_live_unknown_model_type_becomes_other() -> None:
+    refs = parse_references([_LIVE_ITEM])
+    assert refs[0].model_type == "OTHER"
+
+
+def test_parse_references_live_empty_list_returns_empty() -> None:
+    assert parse_references([]) == []
+
+
+def test_parse_references_live_accounting_data_url_captured() -> None:
+    refs = parse_references([_LIVE_ITEM])
+    assert refs[0].accounting_data_url == (
+        "https://ws.cbso.nbb.be/authentic/deposit/2024-00290653/accountingData"
+    )
+
+
+def test_parse_references_camelcase_accounting_data_url_missing_gives_empty() -> None:
+    refs = parse_references(_load("0439401387_references.json"))
+    # Legacy camelCase fixtures have no accountingDataURL — default must be empty string
+    assert all(r.accounting_data_url == "" for r in refs)
+
+
+# ---------------------------------------------------------------------------
+# parse_accounting_pdf — real PDF golden fixtures
+# ---------------------------------------------------------------------------
+
+_PDF_GOLDEN = Path("tests/golden/nbb_authentic")
+
+_REF_MICRO_2024 = ReferenceRow(
+    reference_number="2024-00290653",
+    deposit_date=date(2024, 7, 26),
+    exercise_start=date(2023, 1, 1),
+    exercise_end=date(2023, 12, 31),
+    model_type="OTHER",  # m87-f maps to OTHER
+    language="NL",
+    deposit_type="Initial",
+    filing_method="",
+    accounting_data_url="https://ws.cbso.nbb.be/authentic/deposit/2024-00290653/accountingData",
+)
+
+_REF_ABBREV_2019 = ReferenceRow(
+    reference_number="2019-35100012",
+    deposit_date=date(2019, 7, 19),
+    exercise_start=date(2018, 1, 1),
+    exercise_end=date(2018, 12, 31),
+    model_type="OTHER",  # m07-f maps to OTHER
+    language="NL",
+    deposit_type="Initial",
+    filing_method="",
+    accounting_data_url="https://ws.cbso.nbb.be/authentic/deposit/2019-35100012/accountingData",
+)
+
+
+def test_parse_accounting_pdf_micro_profit_loss() -> None:
+    pdf = (_PDF_GOLDEN / "0439401387_pdf_2024-00290653.pdf").read_bytes()
+    filing = parse_accounting_pdf(_REF_MICRO_2024, pdf)
+    assert filing.exercise_year == 2023
+    # code 9904 = -25.390 in Belgian format → -25390
+    assert filing.profit_loss == -25390
+
+
+def test_parse_accounting_pdf_micro_revenue_uses_brutomarge_proxy() -> None:
+    pdf = (_PDF_GOLDEN / "0439401387_pdf_2024-00290653.pdf").read_bytes()
+    filing = parse_accounting_pdf(_REF_MICRO_2024, pdf)
+    # MICRO model: code 70 present but no value; code 9900 (Brutomarge) used as proxy
+    assert filing.revenue is not None
+    assert filing.revenue > 0
+
+
+def test_parse_accounting_pdf_micro_no_employees() -> None:
+    pdf = (_PDF_GOLDEN / "0439401387_pdf_2024-00290653.pdf").read_bytes()
+    filing = parse_accounting_pdf(_REF_MICRO_2024, pdf)
+    assert filing.employees_fte is None
+
+
+def test_parse_accounting_pdf_abbreviated_profit_loss() -> None:
+    pdf = (_PDF_GOLDEN / "0439401387_pdf_2019-35100012.pdf").read_bytes()
+    filing = parse_accounting_pdf(_REF_ABBREV_2019, pdf)
+    assert filing.exercise_year == 2018
+    # code 9904 = 2.021 → 2021
+    assert filing.profit_loss == 2021
+
+
+def test_parse_accounting_pdf_abbreviated_revenue() -> None:
+    pdf = (_PDF_GOLDEN / "0439401387_pdf_2019-35100012.pdf").read_bytes()
+    filing = parse_accounting_pdf(_REF_ABBREV_2019, pdf)
+    # code 9900 (Brutomarge) = 77.137 → 77137
+    assert filing.revenue == 77137
+
+
+def test_parse_accounting_pdf_empty_bytes_returns_all_none() -> None:
+    filing = parse_accounting_pdf(_REF_MICRO_2024, b"not a pdf")
+    assert filing.revenue is None
+    assert filing.profit_loss is None
+    assert filing.employees_fte is None

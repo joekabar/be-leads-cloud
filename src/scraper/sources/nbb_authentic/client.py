@@ -45,7 +45,36 @@ class NbbClient:
             raise
         return parse_references(response.json())
 
+    async def get_accounting_pdf(self, accounting_data_url: str) -> bytes:
+        """Fetch the annual accounts PDF for one filing.
+
+        The URL comes from ReferenceRow.accounting_data_url (AccountingDataURL in
+        the /references response).  Returns raw PDF bytes.
+
+        Raises NbbAuthError on 401, NbbNotFoundError on 404.
+        """
+        headers = {
+            "NBB-CBSO-Subscription-Key": self._subscription_key,
+            "X-Request-Id": str(uuid.uuid4()),
+            "Accept": "application/pdf",
+        }
+        try:
+            response = await self._client.get(accounting_data_url, headers=headers)
+        except TerminalServerError as exc:
+            if exc.status == 401:
+                raise NbbAuthError(
+                    exc.status, exc.url, "NBB CBSO authentication failed: invalid or expired key"
+                ) from exc
+            if exc.status == 404:
+                raise NbbNotFoundError(accounting_data_url, exc.url) from exc
+            raise
+        return response.content
+
     async def get_accounting_data(self, kbo_number: str, reference_number: str) -> dict[str, Any]:
+        """Legacy JSON path — the live API does not serve JSON here (returns 415).
+
+        Retained for unit tests.  Use get_accounting_pdf in production.
+        """
         kbo = be_vat.compact(kbo_number)
         url = (
             f"{_BASE_URL}/authentic/legalEntity/{kbo}/references/{reference_number}/accountingData"

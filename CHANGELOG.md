@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (NBB CBSO — PDF-based accounting data extraction)
+
+**Root cause:** The NBB `/accountingData` endpoint returns `application/pdf`, not JSON.
+The original code expected a JSON response with keys like `code_700`, `code_70`, etc.
+This resulted in a silent 415 or 404 on every call — no financial data was ever stored.
+
+**Fix:**
+- `NbbClient.get_accounting_pdf(accounting_data_url)` — new method; fetches the annual
+  accounts PDF using `Accept: application/pdf` and returns raw bytes.  Old
+  `get_accounting_data()` kept for unit-test compatibility (marked legacy).
+- `parse_accounting_pdf(reference, pdf_bytes)` in `parser.py` — extracts Belgian GAAP
+  codes from the PDF via pdfminer positional layout (`LTTextLine` Y-coordinate matching).
+  Codes extracted: `700`/`70` (revenue), `9904` (profit/loss), `9087`/`9086` (employees).
+  Falls back to `9900` (Brutomarge / gross-margin) when codes `700`/`70` are absent
+  (common in MICRO and some ABBREVIATED filings).
+- `ingester.py` — now calls `get_accounting_pdf` + `parse_accounting_pdf` per reference;
+  skips references with no `accounting_data_url`.
+- `ReferenceRow` — new field `accounting_data_url: str = ""` populated from
+  `AccountingDataURL` in the live API response.
+- `parse_references` — captures `AccountingDataURL` (live PascalCase) and
+  `accountingDataURL` (legacy camelCase) into `ReferenceRow.accounting_data_url`.
+
+**Tests added (`tests/unit/sources/nbb_authentic/test_parser.py`):**
+- `test_parse_references_live_accounting_data_url_captured` — URL preserved from live format.
+- `test_parse_references_camelcase_accounting_data_url_missing_gives_empty` — legacy fixtures default to `""`.
+- `test_parse_accounting_pdf_micro_profit_loss` — MICRO filing: `9904 = -25390`.
+- `test_parse_accounting_pdf_micro_revenue_uses_brutomarge_proxy` — MICRO: no code 70 value, falls back to `9900 > 0`.
+- `test_parse_accounting_pdf_micro_no_employees` — MICRO: `employees_fte is None`.
+- `test_parse_accounting_pdf_abbreviated_profit_loss` — ABBREVIATED: `9904 = 2021`.
+- `test_parse_accounting_pdf_abbreviated_revenue` — ABBREVIATED: `9900 = 77137`.
+- `test_parse_accounting_pdf_empty_bytes_returns_all_none` — bad bytes → all None, no crash.
+
+**Golden PDF fixtures added:**
+- `tests/golden/nbb_authentic/0439401387_pdf_2024-00290653.pdf` (MICRO, m87-f, 53 KB)
+- `tests/golden/nbb_authentic/0439401387_pdf_2019-35100012.pdf` (ABBREVIATED, m07-f, 51 KB)
+
+### Fixed (NBB CBSO — `parse_references` format mismatch)
+
+The live `/references` API returns a JSON **list** with PascalCase keys and a nested
+`ExerciseDates: {startDate, endDate}` object.  The original parser expected a dict
+`{"references": [...]}` with camelCase keys.  Fixed: `parse_references` now accepts
+both formats (list or dict wrapper, PascalCase or camelCase keys, nested or flat dates).
+
+### Fixed (`.env` — duplicate malformed NBB key line)
+
+Removed `NBB_CBSO_API_KEY = "..."` (with spaces and quotes) that caused
+`command not found` shell warnings when sourcing the file.
+
 ### Fixed (NACE sector filter — three root-cause bugs causing wrong results)
 
 **Bug 1 — kbo_dump prefix matching:** `_build_filter_set` in `kbo_dump/ingester.py` used `nace_code.split(".")[0]` to extract the "division", then compared it to the filter set with `in`. KBO Open Data stores NACE codes *without dots* (`"62019"`, not `"62.019"`), so `split(".")[0]` returned the full 5-digit code — meaning `"62019" in {"620"}` was always `False`. The kbo_dump therefore ingested 0 entities for any sector whose prefix is shorter than the full NACE code. Fixed by switching to `any(nace_code.startswith(p) for p in prefixes)`.

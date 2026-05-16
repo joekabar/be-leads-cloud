@@ -11,7 +11,7 @@ from stdnum.be import vat as be_vat
 from scraper.db.repositories.observations import ObservationsRepo
 from scraper.db.repositories.runs import RunsRepo
 from scraper.lib.errors import NbbAuthError, NbbNotFoundError
-from scraper.sources.nbb_authentic.parser import parse_accounting_data
+from scraper.sources.nbb_authentic.parser import parse_accounting_pdf
 from scraper.sources.nbb_authentic.transformer import filing_to_observations
 
 if TYPE_CHECKING:
@@ -114,12 +114,15 @@ async def ingest_kbos(
         report.references_total += len(references)
 
         for ref in references:
-            try:
-                payload = await nbb_client.get_accounting_data(kbo, ref.reference_number)
-            except NbbNotFoundError:
-                log.warning("accounting_data_not_found", kbo=kbo, ref=ref.reference_number)
+            if not ref.accounting_data_url:
+                log.debug("no_accounting_data_url", kbo=kbo, ref=ref.reference_number)
                 continue
-            filing = parse_accounting_data(ref, payload)
+            try:
+                pdf_bytes = await nbb_client.get_accounting_pdf(ref.accounting_data_url)
+            except NbbNotFoundError:
+                log.warning("accounting_pdf_not_found", kbo=kbo, ref=ref.reference_number)
+                continue
+            filing = parse_accounting_pdf(ref, pdf_bytes)
             obs = filing_to_observations(kbo, filing, run_id, snapshot_at)
             buffer.extend(obs)
 
