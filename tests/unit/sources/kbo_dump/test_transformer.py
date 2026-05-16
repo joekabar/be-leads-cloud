@@ -28,7 +28,7 @@ _KBO = "0439401387"
 # ── enterprise_to_observations ───────────────────────────────────────────────
 
 
-def test_enterprise_produces_founding_date_and_status() -> None:
+def test_enterprise_produces_founding_date_status_and_legal_form() -> None:
     row = EnterpriseRow(
         enterprise_number=_KBO,
         status="AC",
@@ -39,9 +39,73 @@ def test_enterprise_produces_founding_date_and_status() -> None:
         start_date=date(1989, 12, 28),
     )
     obs = enterprise_to_observations(row, _RUN_ID, _OBS_AT)
-    assert len(obs) == 2
+    assert len(obs) == 3
     fields = {o.field for o in obs}
-    assert fields == {"founding_date", "status"}
+    assert fields == {"founding_date", "status", "legal_form"}
+
+
+def test_enterprise_legal_form_nv_is_large() -> None:
+    row = EnterpriseRow(
+        enterprise_number=_KBO,
+        status="AC",
+        juridical_situation="000",
+        type_of_enterprise="1",
+        juridical_form="014",
+        juridical_form_cac=None,
+        start_date=None,
+    )
+    obs = enterprise_to_observations(row, _RUN_ID, _OBS_AT)
+    lf = next(o for o in obs if o.field == "legal_form")
+    assert lf.value["code"] == "014"
+    assert lf.value["label"] == "NV"
+    assert lf.value["size_category"] == "Large"
+    assert lf.confidence == 1.00
+
+
+def test_enterprise_legal_form_natural_person_is_solo() -> None:
+    row = EnterpriseRow(
+        enterprise_number=_KBO,
+        status="AC",
+        juridical_situation="000",
+        type_of_enterprise="0",
+        juridical_form="010",
+        juridical_form_cac=None,
+        start_date=None,
+    )
+    obs = enterprise_to_observations(row, _RUN_ID, _OBS_AT)
+    lf = next(o for o in obs if o.field == "legal_form")
+    assert lf.value["size_category"] == "Solo"
+    assert lf.value["label"] == "Eenmanszaak"
+
+
+def test_enterprise_legal_form_bv_is_sme() -> None:
+    row = EnterpriseRow(
+        enterprise_number=_KBO,
+        status="AC",
+        juridical_situation="000",
+        type_of_enterprise="1",
+        juridical_form="017",
+        juridical_form_cac=None,
+        start_date=None,
+    )
+    obs = enterprise_to_observations(row, _RUN_ID, _OBS_AT)
+    lf = next(o for o in obs if o.field == "legal_form")
+    assert lf.value["size_category"] == "SME"
+    assert lf.value["label"] == "BV"
+
+
+def test_enterprise_no_juridical_form_omits_legal_form_obs() -> None:
+    row = EnterpriseRow(
+        enterprise_number=_KBO,
+        status="AC",
+        juridical_situation="000",
+        type_of_enterprise="1",
+        juridical_form=None,
+        juridical_form_cac=None,
+        start_date=None,
+    )
+    obs = enterprise_to_observations(row, _RUN_ID, _OBS_AT)
+    assert not any(o.field == "legal_form" for o in obs)
 
 
 def test_enterprise_founding_date_iso() -> None:

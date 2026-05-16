@@ -23,8 +23,8 @@ async def test_ingest_full_zip_observation_count(synthetic_zip: Path, fresh_pool
     assert report.extract_type == "Full"
     assert report.snapshot_date.isoformat() == "2026-04-15"
     assert report.enterprises_processed == 5
-    # 5 founding_date + 5 status + 7 name + 5 address + 4 phone + 3 email + 2 website + 8 nace = 39
-    assert report.observations_inserted == 39
+    # 5 founding_date + 5 status + 3 legal_form + 7 name + 5 address + 4 phone + 3 email + 2 website + 8 nace = 42
+    assert report.observations_inserted == 42
     assert report.phones_invalid_skipped == 1
 
 

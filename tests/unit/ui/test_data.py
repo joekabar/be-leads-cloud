@@ -455,3 +455,80 @@ class TestFetchResultsForRun:
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT))
         assert len(rows) == 2
         assert rows[0]["score_overall"] >= rows[1]["score_overall"]
+
+
+class TestSizeCategory:
+    def test_aggregate_row_nv_is_large(self) -> None:
+        obs = [_obs("legal_form", {"code": "014", "label": "NV", "size_category": "Large"})]
+        row = _aggregate_row("0439401387", obs, _NOW)
+        assert row["size_category"] == "Large"
+        assert row["legal_form_label"] == "NV"
+
+    def test_aggregate_row_bv_is_sme(self) -> None:
+        obs = [_obs("legal_form", {"code": "017", "label": "BV", "size_category": "SME"})]
+        row = _aggregate_row("0439401387", obs, _NOW)
+        assert row["size_category"] == "SME"
+
+    def test_aggregate_row_eenmanszaak_is_solo(self) -> None:
+        obs = [_obs("legal_form", {"code": "010", "label": "Eenmanszaak", "size_category": "Solo"})]
+        row = _aggregate_row("0439401387", obs, _NOW)
+        assert row["size_category"] == "Solo"
+
+    def test_aggregate_row_no_legal_form_obs_returns_empty_string(self) -> None:
+        obs = [_obs("name", {"text": "Unknown Co"})]
+        row = _aggregate_row("0439401387", obs, _NOW)
+        assert row["size_category"] == ""
+        assert row["legal_form_label"] == ""
+
+    def test_size_filter_excludes_non_matching_category(self) -> None:
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [
+            _mock_record(
+                field="legal_form",
+                value={"code": "010", "label": "Eenmanszaak", "size_category": "Solo"},
+            ),
+        ]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(
+            fetch_results_for_run(pool, _STARTED_AT, size_categories=["SME", "Large"])
+        )
+        assert rows == [], "Solo company must be excluded when filter is SME+Large"
+
+    def test_size_filter_includes_matching_category(self) -> None:
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [
+            _mock_record(
+                field="legal_form",
+                value={"code": "017", "label": "BV", "size_category": "SME"},
+            ),
+        ]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(
+            fetch_results_for_run(pool, _STARTED_AT, size_categories=["SME", "Large"])
+        )
+        assert len(rows) == 1
+
+    def test_size_filter_none_passes_all(self) -> None:
+        """size_categories=None means no filter — all rows pass regardless of size."""
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [
+            _mock_record(
+                field="legal_form",
+                value={"code": "010", "label": "Eenmanszaak", "size_category": "Solo"},
+            ),
+        ]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, size_categories=None))
+        assert len(rows) == 1
+
+    def test_size_filter_unknown_size_passes_through(self) -> None:
+        """Companies with no legal_form observation (size_category='') pass the filter."""
+        pool = AsyncMock()
+        kbo_record = {"kbo_number": "0439401387"}
+        obs_records = [_mock_record(field="name", value={"text": "Mystery Co"})]
+        pool.fetch.side_effect = [[kbo_record], obs_records]
+        rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, size_categories=["SME"]))
+        assert len(rows) == 1, "company with unknown size must pass through (don't filter unknowns)"

@@ -43,6 +43,32 @@ _ROLE_ACCOUNTS = frozenset(
 
 _LANG_MAP: dict[str, str] = {"NL": "nl", "FR": "fr", "DE": "de", "EN": "en"}
 
+_JURIDICAL_FORM_LABELS: dict[str, str] = {
+    "010": "Eenmanszaak",
+    "014": "NV",
+    "016": "SE",
+    "017": "BV",
+    "018": "CV",
+    "019": "CVOA",
+    "020": "VZW",
+    "021": "IVZW",
+    "022": "Stichting",
+    "028": "Comm.V",
+    "029": "VOF",
+    "048": "ESV",
+}
+
+_LARGE_FORMS: frozenset[str] = frozenset({"014", "016"})  # NV, SE
+
+
+def _size_category(type_of_enterprise: str, juridical_form: str) -> str:
+    if type_of_enterprise == "0":
+        return "Solo"
+    if juridical_form in _LARGE_FORMS:
+        return "Large"
+    return "SME"
+
+
 _DENOM_CONFIDENCE: dict[str, float] = {
     "001": 1.00,
     "002": 0.90,
@@ -86,6 +112,21 @@ def enterprise_to_observations(
                 run_id=run_id,
             )
         )
+        if row.juridical_form is not None:
+            label = _JURIDICAL_FORM_LABELS.get(row.juridical_form, row.juridical_form)
+            size = _size_category(row.type_of_enterprise, row.juridical_form)
+            obs.append(
+                Observation(
+                    kbo_number=row.enterprise_number,
+                    field="legal_form",
+                    value={"code": row.juridical_form, "label": label, "size_category": size},
+                    raw_value=row.juridical_form,
+                    source="kbo_dump",
+                    observed_at=observed_at,
+                    confidence=1.00,
+                    run_id=run_id,
+                )
+            )
     except ValueError:
         logger.warning("invalid_kbo_enterprise_skipped", enterprise_number=row.enterprise_number)
         return []

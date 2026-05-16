@@ -122,6 +122,7 @@ def render_results_table(
     df = pd.DataFrame(enriched_rows)
 
     col_cfg: dict[str, Any] = {
+        "sector": st.column_config.TextColumn("Sector"),
         "kbo_number": st.column_config.TextColumn("KBO"),
         "name": st.column_config.TextColumn("Name", width="large"),
         "address": st.column_config.TextColumn("Address", width="large"),
@@ -131,6 +132,8 @@ def render_results_table(
         "founding_date": st.column_config.DateColumn("Founded"),
         "status": st.column_config.TextColumn("Status"),
         "nace_code": st.column_config.TextColumn("NACE"),
+        "legal_form_label": st.column_config.TextColumn("Legal form"),
+        "size_category": st.column_config.TextColumn("Size"),
         "employees": st.column_config.NumberColumn("Employees", format="%d"),
         "revenue_latest": st.column_config.NumberColumn("Revenue (EUR)", format="€%,.0f"),
         "function_holders": st.column_config.TextColumn("Directors"),
@@ -153,10 +156,12 @@ def render_results_table(
     st.dataframe(df[available], column_config=col_cfg, use_container_width=True)
 
     csv = df.to_csv(index=False)
+    sectors = sorted({str(r.get("sector", "")) for r in rows if r.get("sector")})
+    fname = ("be_leads_" + "_".join(sectors) + ".csv") if sectors else "be_leads_results.csv"
     st.download_button(
         label="Download CSV",
         data=csv,
-        file_name="be_leads_results.csv",
+        file_name=fname,
         mime="text/csv",
     )
 

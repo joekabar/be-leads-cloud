@@ -50,6 +50,7 @@ def _aggregate_row(kbo: str, obs_list: list[Any], now: datetime) -> dict[str, An
     """Build the display dict expected by the results table."""
     score = compute_lead_score(obs_list, _CFG, now)
 
+    legal_form_val = _best_obs_value(obs_list, "legal_form")
     name_val = _best_obs_value(obs_list, "name")
     address_val = _best_obs_value(obs_list, "address")
     phone_val = _best_obs_value(obs_list, "phone")
@@ -115,6 +116,9 @@ def _aggregate_row(kbo: str, obs_list: list[Any], now: datetime) -> dict[str, An
         "status": status_val.get("text", "") if status_val else "",
         "nace_code": nace_val.get("code", "") if nace_val else "",
         "nace_description": nace_val.get("description", "") if nace_val else "",
+        "legal_form_code": legal_form_val.get("code", "") if legal_form_val else "",
+        "legal_form_label": legal_form_val.get("label", "") if legal_form_val else "",
+        "size_category": legal_form_val.get("size_category", "") if legal_form_val else "",
         "employees": _latest_financial(obs_list, "employees"),
         "revenue_latest": _latest_financial(obs_list, "revenue"),
         "function_holders": "; ".join(unique_fh[:5]),
@@ -140,6 +144,7 @@ async def fetch_results_for_run(
     founded_before: str | None = None,
     min_revenue: float | None = None,
     min_employees: float | None = None,
+    size_categories: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Pull rows matching sector+city from all-time DB observations.
 
@@ -260,6 +265,7 @@ async def fetch_results_for_run(
             founded_before=founded_before,
             min_revenue=min_revenue,
             min_employees=min_employees,
+            size_categories=size_categories,
         ):
             continue
         result.append(row)
@@ -280,12 +286,13 @@ def _passes_filters(
     founded_before: str | None,
     min_revenue: float | None,
     min_employees: float | None,
+    size_categories: list[str] | None = None,
 ) -> bool:
     """Return True if *row* satisfies all active filter criteria.
 
     Filters compose with AND. For optional fields (founding_date, revenue,
-    employees, status) a row passes if the value is missing — we don't filter
-    on unknowns, we just don't include them in the threshold comparison.
+    employees, status, size_category) a row passes if the value is missing —
+    we don't filter on unknowns, we just don't include them in the comparison.
     """
     if row.get("score_overall", 0.0) < min_score:
         return False
@@ -312,5 +319,9 @@ def _passes_filters(
     if min_employees is not None:
         emp = row.get("employees")
         if emp is not None and emp < min_employees:
+            return False
+    if size_categories is not None:
+        cat = row.get("size_category", "")
+        if cat and cat not in size_categories:
             return False
     return True

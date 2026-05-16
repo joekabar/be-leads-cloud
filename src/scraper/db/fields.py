@@ -19,6 +19,7 @@ ALLOWED_FIELDS: frozenset[str] = frozenset(
         "postal_code",
         "status",
         "cross_validation",
+        "legal_form",
     }
 )
 

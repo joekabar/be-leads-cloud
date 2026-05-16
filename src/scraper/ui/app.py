@@ -28,15 +28,14 @@ def main() -> None:
         )
 
         sector_options = load_sector_options()
-        sector_labels = [f"{display}" for _, display in sector_options]
         sector_slugs = [slug for slug, _ in sector_options]
 
-        sector_idx = st.selectbox(
-            "Sector",
-            range(len(sector_labels)),
-            format_func=lambda i: sector_labels[i],
+        selected_sector_slugs = st.multiselect(
+            "Sector(s)",
+            options=sector_slugs,
+            default=[sector_slugs[0]] if sector_slugs else [],
+            format_func=lambda s: next((lbl for slg, lbl in sector_options if slg == s), s),
         )
-        selected_sector_slug = sector_slugs[sector_idx]
 
         city_options = load_city_options()
         city_labels = [display for _, display, _ in city_options]
@@ -131,8 +130,26 @@ def main() -> None:
             min_employees_val = st.number_input("Min employees", min_value=0, value=0, step=1)
             min_revenue = float(min_revenue_val) if min_revenue_val > 0 else None
             min_employees = float(min_employees_val) if min_employees_val > 0 else None
+            st.markdown("**Company size** (from KBO legal form)")
+            _size_all = ["Solo", "SME", "Large"]
+            selected_sizes = st.multiselect(
+                "Size categories",
+                options=_size_all,
+                default=_size_all,
+                help=(
+                    "Solo = eenmanszaak / natural person; "
+                    "Large = NV or SE; SME = all other legal forms. "
+                    "Companies with no size data always pass through."
+                ),
+            )
+            size_categories = selected_sizes if len(selected_sizes) < len(_size_all) else None
 
-        run_btn = st.button("Run pipeline", type="primary", use_container_width=True)
+        run_btn = st.button(
+            "Run pipeline",
+            type="primary",
+            use_container_width=True,
+            disabled=not selected_sector_slugs,
+        )
 
     # ── Main area ─────────────────────────────────────────────────────────
     if "last_report" not in st.session_state:
@@ -148,85 +165,102 @@ def main() -> None:
             unsafe_allow_html=True,
         )
 
-    if run_btn:
+    if run_btn and selected_sector_slugs:
         from scraper.pipeline.orchestrator import PipelineConfig, resolve_sector_slugs
 
-        try:
-            nl_slug, _ = resolve_sector_slugs(selected_sector_slug)
-        except ValueError:
-            nl_slug = selected_sector_slug
+        db_url = os.environ.get("DATABASE_URL", "")
+        all_rows: list[dict[str, object]] = []
+        last_report = None
+        log_parts: list[str] = []
 
-        config = PipelineConfig(
-            sector=selected_sector_slug,
-            city=city_slug,
-            sector_slug=nl_slug,
-            max_pages=max_pages,
-            lang="nl" if lang == "NL" else "fr",
-            use_fixture=False,
-            fixture_zip_path=selected_zip_path,
-            postcodes=tuple(selected_postcodes),
-            do_kbo_dump=do_kbo and selected_zip_path is not None,
-            do_goudengids=do_goud,
-            do_kbopub=do_kbopub,
-            do_nbb=do_nbb,
-            do_website=do_web,
-            do_search=do_search,
-            nbb_subscription_key=os.environ.get("NBB_CBSO_API_KEY"),
-            brave_subscription_key=os.environ.get("BRAVE_SEARCH_API_KEY"),
-        )
+        for sector_slug in selected_sector_slugs:
+            sector_label = next(
+                (lbl for slg, lbl in sector_options if slg == sector_slug), sector_slug
+            )
+            try:
+                nl_slug, _ = resolve_sector_slugs(sector_slug)
+            except ValueError:
+                nl_slug = sector_slug
 
-        try:
-            from scraper.db.pool import init_pool
-            from scraper.pipeline.run import run
-
-            db_url = os.environ.get("DATABASE_URL", "")
-
-            with st.spinner("Running pipeline…"):
-                report = asyncio.run(run(config))
-
-            st.session_state["last_report"] = report
-            st.session_state["last_log"] = json.dumps(
-                {
-                    "sources_run": report.sources_run,
-                    "sources_failed": report.sources_failed,
-                    "companies_in_view": report.companies_in_view,
-                    "duration_s": round(report.duration_s, 2),
-                },
-                indent=2,
+            config = PipelineConfig(
+                sector=sector_slug,
+                city=city_slug,
+                sector_slug=nl_slug,
+                max_pages=max_pages,
+                lang="nl" if lang == "NL" else "fr",
+                use_fixture=False,
+                fixture_zip_path=selected_zip_path,
+                postcodes=tuple(selected_postcodes),
+                do_kbo_dump=do_kbo and selected_zip_path is not None,
+                do_goudengids=do_goud,
+                do_kbopub=do_kbopub,
+                do_nbb=do_nbb,
+                do_website=do_web,
+                do_search=do_search,
+                nbb_subscription_key=os.environ.get("NBB_CBSO_API_KEY"),
+                brave_subscription_key=os.environ.get("BRAVE_SEARCH_API_KEY"),
             )
 
-            # Fetch results from DB — pool creation and use must share one event loop.
-            if db_url:
-                from scraper.ui.data import fetch_results_for_run
+            try:
+                from scraper.pipeline.run import run
 
-                async def _fetch_results() -> list[dict[str, object]]:
-                    p = await init_pool(db_url)
-                    try:
-                        return await fetch_results_for_run(
-                            p,
-                            report.started_at,
-                            sector=selected_sector_slug,
-                            city=city,
-                            postcodes=tuple(selected_postcodes) or None,
-                            min_score=min_score,
-                            require_phone=require_phone,
-                            require_website=require_website,
-                            require_email=require_email,
-                            active_only=active_only,
-                            founded_after=founded_after,
-                            founded_before=founded_before,
-                            min_revenue=min_revenue,
-                            min_employees=min_employees,
-                        )
-                    finally:
-                        await p.close()
+                with st.spinner(f"Running pipeline for {sector_label}…"):
+                    report = asyncio.run(run(config))
 
-                st.session_state["last_rows"] = asyncio.run(_fetch_results())
-            else:
-                st.session_state["last_rows"] = []
+                last_report = report
+                log_parts.append(
+                    json.dumps(
+                        {
+                            "sector": sector_slug,
+                            "sources_run": report.sources_run,
+                            "sources_failed": report.sources_failed,
+                            "companies_in_view": report.companies_in_view,
+                            "duration_s": round(report.duration_s, 2),
+                        },
+                        indent=2,
+                    )
+                )
 
-        except Exception as exc:
-            st.error(f"Pipeline error: {exc}")
+                if db_url:
+                    from scraper.db.pool import init_pool
+                    from scraper.ui.data import fetch_results_for_run
+
+                    async def _fetch(
+                        _slug: str = sector_slug, _report=report
+                    ) -> list[dict[str, object]]:
+                        p = await init_pool(db_url)
+                        try:
+                            return await fetch_results_for_run(
+                                p,
+                                _report.started_at,
+                                sector=_slug,
+                                city=city,
+                                postcodes=tuple(selected_postcodes) or None,
+                                min_score=min_score,
+                                require_phone=require_phone,
+                                require_website=require_website,
+                                require_email=require_email,
+                                active_only=active_only,
+                                founded_after=founded_after,
+                                founded_before=founded_before,
+                                min_revenue=min_revenue,
+                                min_employees=min_employees,
+                                size_categories=size_categories,
+                            )
+                        finally:
+                            await p.close()
+
+                    sector_rows = asyncio.run(_fetch())
+                    for row in sector_rows:
+                        row["sector"] = sector_label
+                    all_rows.extend(sector_rows)
+
+            except Exception as exc:
+                st.error(f"Pipeline error ({sector_label}): {exc}")
+
+        st.session_state["last_report"] = last_report
+        st.session_state["last_rows"] = all_rows
+        st.session_state["last_log"] = "\n\n".join(log_parts)
 
     last_report: object = st.session_state.get("last_report")
     if last_report is not None:
