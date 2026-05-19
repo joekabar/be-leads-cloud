@@ -664,6 +664,17 @@ async def run_pipeline(
     log = logger.bind(sector=config.sector, city=config.city)
     log.info("pipeline_started")
 
+    # Close any orphaned run_log rows left by a previous crashed/killed process.
+    # Without this, the status query shows phantom "still running" entries forever.
+    try:
+        await pool.execute(
+            "UPDATE run_log SET ended_at = NOW(), notes = COALESCE(notes || ' ', '') || '[crashed]'"
+            " WHERE ended_at IS NULL AND started_at < $1",
+            started_at,
+        )
+    except Exception:
+        pass
+
     # ── Wave A: kbo_dump (CPU-heavy ZIP parse — runs alone to avoid starving Chromium) ──
     async with asyncio.TaskGroup() as tg_a:
         if config.do_kbo_dump:

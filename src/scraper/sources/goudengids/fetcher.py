@@ -95,15 +95,15 @@ class BrowserListingFetcher:
         return self
 
     async def __aexit__(self, *_: object) -> None:
-        # Suppress cleanup errors — on Windows, browser.close() can raise after a
-        # crash/connection-reset, which would replace the original exception with one
-        # whose str() is empty (masking the real cause in logs).
+        # Suppress cleanup errors and enforce timeouts — on Windows, browser.close()
+        # and pw.stop() can hang indefinitely after a crash/connection-reset, blocking
+        # the Streamlit main thread and making the UI appear stuck forever.
         if self._browser is not None:
             with contextlib.suppress(Exception):
-                await self._browser.close()
+                await asyncio.wait_for(self._browser.close(), timeout=10.0)
         if self._pw is not None:
             with contextlib.suppress(Exception):
-                await self._pw.stop()
+                await asyncio.wait_for(self._pw.stop(), timeout=10.0)
         self._browser = None
         self._pw = None
         self._context = None
@@ -119,10 +119,11 @@ class BrowserListingFetcher:
                 wait_until="load",
                 timeout=30_000,
             )
-        except PlaywrightTimeoutError:
+        except (PlaywrightTimeoutError, TimeoutError):
             logger.warning("goudengids_warmup_timeout", domain=self._domain)
         finally:
-            await page.close()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(page.close(), timeout=5.0)
         await asyncio.sleep(3.0)
         self._warmed_up = True
         logger.debug("goudengids_warmup_done", domain=self._domain)
@@ -151,15 +152,17 @@ class BrowserListingFetcher:
                 logger.warning("goudengids_page_nav_timeout", url=url)
             with contextlib.suppress(PlaywrightTimeoutError, TimeoutError):
                 await page.wait_for_selector(_LISTING_SELECTOR, timeout=20_000)
-            # page.content() can hang after a failed navigation on Windows when the
-            # Playwright Node.js IPC times out — catch asyncio TimeoutError here too.
+            # page.content() can hang indefinitely after a failed navigation on Windows
+            # when the Playwright Node.js IPC never responds — wrap with asyncio timeout
+            # so it always returns within 30 s rather than blocking the event loop forever.
             try:
-                html: str = await page.content()
+                html: str = await asyncio.wait_for(page.content(), timeout=30.0)
             except (PlaywrightTimeoutError, TimeoutError):
                 logger.warning("goudengids_page_content_timeout", url=url)
                 html = ""
         finally:
-            await page.close()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(page.close(), timeout=5.0)
 
         if is_blocked(html):
             logger.error("goudengids_imperva_block", url=url)
