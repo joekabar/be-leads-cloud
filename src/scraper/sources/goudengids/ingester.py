@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import structlog
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from scraper.db.repositories.observations import ObservationsRepo
 from scraper.db.repositories.runs import RunsRepo
@@ -131,6 +132,9 @@ async def ingest_sector_city(
                     listing = await fetcher.fetch_page(sector_slug, city_slug, page_num, lang=lang)
                 except BlockedError:
                     log.error("goudengids_blocked_aborting", page=page_num)
+                    break
+                except (PlaywrightTimeoutError, TimeoutError):
+                    log.warning("goudengids_page_timeout_aborting", page=page_num)
                     break
 
                 report.pages_scanned += 1

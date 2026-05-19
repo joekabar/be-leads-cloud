@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import tempfile
 import time
@@ -114,12 +115,61 @@ _SECTOR_NACE_PREFIXES: dict[str, list[str]] = {
     "campings": ["5530"],
     "drukkerijen": ["1811", "1812"],
     "recyclagebedrijven": ["381", "382", "383"],
+    "recyclagebedrijven-industrieel": ["381", "382", "383"],
     "scholen": ["85"],
     "schoonmaakbedrijven": ["8121", "8122", "8129"],
     "taxidiensten": ["4932"],
     "transportbedrijven": ["4941", "4939", "4942"],
+    "transportbedrijven-zwaar": ["4941", "4942"],
     "tuinaanleggers": ["8130"],
     "verhuisbedrijven": ["4942"],
+    # Tier 1: Guaranteed / very high HV — KBO Open Data only (not on goudengids)
+    "energieproducenten": ["3511", "3512", "3513", "3514"],
+    "gasdistributie": ["3521", "3522"],
+    "stoomlevering": ["3530"],
+    "chemiebedrijven": ["201", "202", "203", "204", "205", "206"],
+    "farmaceutische-bedrijven": ["211", "212"],
+    "staalindustrie": ["241", "242", "243", "244", "245"],
+    "petroleumraffinaderijen": ["191", "192"],
+    "datacenters": ["6190"],
+    "spoortransport": ["4910", "4920"],
+    # Tier 2: High HV — KBO Open Data only
+    "waterzuivering": ["3600", "3700"],
+    "afvalverwerkingsindustrie": ["382", "383", "390"],
+    "automobielfabrieken": ["291", "292", "293"],
+    "scheepsbouw": ["301", "302", "303"],
+    "papierfabrieken": ["171", "172"],
+    "rubberindustrie": ["221", "222"],
+    "glasindustrie": ["231", "235"],
+    "elektronica-fabrieken": ["261", "262", "263", "271", "272", "273", "274"],
+    "machinebouwers": ["281", "282", "283", "284", "289"],
+    "metaalverwerkingsbedrijven": ["251", "252", "253", "255", "256", "257", "259"],
+    "voedingsindustrie": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+    ],
+    "diervoederfabricage": ["1091", "1092"],
+    "textielfabricage": ["131", "132"],
+    # Tier 3: Moderate HV — KBO Open Data only
+    "ziekenhuizen": ["8610"],
+    "logistiekverleners": ["5210", "5220", "5221", "5224"],
+    "havenactiviteiten": ["5222", "5223"],
+    "bouwbedrijven": ["4110", "4120", "4211", "4212", "4213", "4221", "4222", "4223"],
+    "universiteiten": ["8542"],
+    "ingenieurs-adviesbureaus": ["7112"],
+    "grote-bedrijfsgebouwen": ["6820"],
+    "steengroeven": ["0812"],
+    "tuinbouwbedrijven-industrieel": ["0113", "0119", "013"],
+    "intensieve-veehouderij": ["0147"],
+    "snellaadstations": ["4799"],
 }
 
 
@@ -265,13 +315,325 @@ async def _get_placeholder_inputs(
     return [(kbo, names[kbo], cities.get(kbo, "")) for kbo in names if names[kbo]]
 
 
+# ── Per-source helper coroutines ───────────────────────────────────────────────
+# Each catches all exceptions internally so TaskGroup never sees an unhandled
+# exception (which would cancel sibling tasks).
+
+
+async def _run_kbo_dump(
+    config: PipelineConfig,
+    pool: asyncpg.Pool,
+    started_at: datetime,
+    report: PipelineReport,
+) -> None:
+    t0 = time.monotonic()
+    tmp_dir: Path | None = None
+    log = logger.bind(sector=config.sector, city=config.city)
+    try:
+        if config.use_fixture:
+            # Synthetic test data — re-parse the fixture ZIP directly (fast, no staging).
+            from scraper.sources.kbo_dump.ingester import ingest_zip
+
+            mini_dir = (
+                Path(__file__).parents[3] / "tests" / "golden" / "kbo_dump" / "synthetic_mini"
+            )
+            zip_path, tmp_dir = _create_fixture_zip(mini_dir)
+            kbo_report = await ingest_zip(
+                zip_path, pool, sector_filter=None, city_filter=[config.city], refresh_view=False
+            )
+            report.sources_run.append("kbo_dump")
+            report.observations_inserted_per_source["kbo_dump"] = kbo_report.observations_inserted
+            log.info(
+                "kbo_dump_done",
+                observations=kbo_report.observations_inserted,
+                enterprises=kbo_report.enterprises_processed,
+            )
+
+        elif config.fixture_zip_path is not None:
+            # Real ZIP — stage once (idempotent), then read from staging tables.
+            from datetime import UTC
+
+            from scraper.db.repositories.runs import RunsRepo
+            from scraper.pipeline.batch import (
+                emit_phase_a,
+                get_entity_filter,
+                resolve_snapshot_date,
+            )
+            from scraper.sources.kbo_dump.staging import stage_zip
+
+            zip_path = config.fixture_zip_path
+            staging = await stage_zip(zip_path, pool)
+            if not staging.skipped:
+                log.info("kbo_stage_auto_staged", duration_s=round(staging.duration_s, 2))
+
+            snapshot_date = await resolve_snapshot_date(pool)
+            if snapshot_date is None:
+                raise RuntimeError("Staging tables empty after stage_zip")
+
+            observed_at = datetime(
+                snapshot_date.year, snapshot_date.month, snapshot_date.day, tzinfo=UTC
+            )
+            nace_prefixes = _SECTOR_NACE_PREFIXES.get(config.sector_slug, [])
+            entity_numbers = await get_entity_filter(
+                pool, snapshot_date, config.city, nace_prefixes
+            )
+            log.info("entity_filter_computed", count=len(entity_numbers))
+
+            runs_repo = RunsRepo(pool)
+            run_id = await runs_repo.start_run(
+                source="kbo_dump",
+                city_slug=config.city,
+                notes=f"snapshot={snapshot_date}",
+            )
+            n_obs = 0
+            if entity_numbers:
+                n_obs = await emit_phase_a(pool, snapshot_date, entity_numbers, run_id, observed_at)
+            await runs_repo.finish_run(run_id, jobs_done=n_obs)
+
+            report.sources_run.append("kbo_dump")
+            report.observations_inserted_per_source["kbo_dump"] = n_obs
+            log.info("kbo_dump_done", observations=n_obs, enterprises=len(entity_numbers))
+
+        else:
+            raise ValueError(
+                "kbo_dump requires --use-fixture or --fixture-zip path. "
+                "Real KBO Open Data ZIP must be provided explicitly."
+            )
+
+    except Exception as exc:
+        report.sources_failed["kbo_dump"] = str(exc)
+        log.error("kbo_dump_failed", error=str(exc))
+    finally:
+        report.duration_per_source["kbo_dump"] = round(time.monotonic() - t0, 2)
+        if tmp_dir is not None:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+async def _run_goudengids(
+    config: PipelineConfig,
+    pool: asyncpg.Pool,
+    polite_client: PoliteClient,
+    report: PipelineReport,
+) -> None:
+    t0 = time.monotonic()
+    log = logger.bind(sector=config.sector, city=config.city)
+    try:
+        # Industrial sectors are KBO Open Data only — they don't exist on goudengids.be.
+        # Detect this by checking whether the slug is in sectors.toml; skip gracefully if not.
+        try:
+            resolve_sector_slugs(config.sector_slug)
+        except ValueError:
+            report.sources_skipped.append("goudengids")
+            log.info("goudengids_skipped_kbo_only_sector", sector_slug=config.sector_slug)
+            return
+
+        from scraper.sources.goudengids.fetcher import BrowserListingFetcher
+        from scraper.sources.goudengids.ingester import ingest_sector_city
+
+        domain = "pagesdor.be" if config.lang == "fr" else "goudengids.be"
+        fetcher = BrowserListingFetcher(polite_client.limiter, domain=domain)
+        slug = _get_goudengids_slug(config)
+
+        goud_report = await ingest_sector_city(
+            slug,
+            config.city,
+            pool,
+            fetcher,
+            max_pages=config.max_pages,
+            lang=config.lang,
+            skip_recent_hours=0,
+        )
+        report.sources_run.append("goudengids")
+        report.observations_inserted_per_source["goudengids"] = goud_report.observations_inserted
+        report.placeholders_created += goud_report.placeholders_created
+        log.info(
+            "goudengids_done",
+            observations=goud_report.observations_inserted,
+            placeholders=goud_report.placeholders_created,
+        )
+    except Exception as exc:
+        error_str = str(exc) or repr(exc)
+        report.sources_failed["goudengids"] = error_str
+        log.error("goudengids_failed", error=error_str)
+    finally:
+        report.duration_per_source["goudengids"] = round(time.monotonic() - t0, 2)
+
+
+async def _run_kbopub(
+    config: PipelineConfig,
+    pool: asyncpg.Pool,
+    polite_client: PoliteClient,
+    started_at: datetime,
+    report: PipelineReport,
+) -> None:
+    t0 = time.monotonic()
+    log = logger.bind(sector=config.sector, city=config.city)
+    try:
+        from scraper.sources.kbopub_html.ingester import ingest_kbos as kbopub_ingest
+
+        real_kbos = await _get_real_kbos(pool, started_at)
+        skip_hours = 0
+        if not real_kbos:
+            nace_prefixes = _SECTOR_NACE_PREFIXES.get(config.sector_slug, [])
+            if nace_prefixes:
+                real_kbos = await _get_real_kbos_for_sector_city(pool, nace_prefixes, config.city)
+                skip_hours = 24
+        if real_kbos:
+            kbopub_report = await kbopub_ingest(
+                real_kbos,
+                pool,
+                polite_client.limiter,
+                lang=config.lang,
+                skip_recent_hours=skip_hours,
+            )
+            report.sources_run.append("kbopub_html")
+            report.observations_inserted_per_source["kbopub_html"] = (
+                kbopub_report.observations_inserted
+            )
+            log.info(
+                "kbopub_done",
+                kbos=kbopub_report.kbos_processed,
+                observations=kbopub_report.observations_inserted,
+            )
+        else:
+            report.sources_skipped.append("kbopub_html")
+            log.info("kbopub_skipped_no_real_kbos")
+    except Exception as exc:
+        report.sources_failed["kbopub_html"] = str(exc)
+        log.error("kbopub_failed", error=str(exc))
+    finally:
+        report.duration_per_source["kbopub_html"] = round(time.monotonic() - t0, 2)
+
+
+async def _run_nbb(
+    config: PipelineConfig,
+    pool: asyncpg.Pool,
+    polite_client: PoliteClient,
+    started_at: datetime,
+    report: PipelineReport,
+) -> None:
+    t0 = time.monotonic()
+    log = logger.bind(sector=config.sector, city=config.city)
+    try:
+        from scraper.sources.nbb_authentic.client import NbbClient
+        from scraper.sources.nbb_authentic.ingester import ingest_kbos as nbb_ingest
+
+        nbb_client = NbbClient(polite_client, config.nbb_subscription_key or "")
+        real_kbos = await _get_real_kbos(pool, started_at)
+        if real_kbos:
+            nbb_report = await nbb_ingest(real_kbos, pool, nbb_client, skip_recent_hours=0)
+            report.sources_run.append("nbb_authentic")
+            report.observations_inserted_per_source["nbb_authentic"] = (
+                nbb_report.observations_inserted
+            )
+            log.info(
+                "nbb_done",
+                kbos=nbb_report.kbos_processed,
+                observations=nbb_report.observations_inserted,
+            )
+        else:
+            report.sources_skipped.append("nbb_authentic")
+    except Exception as exc:
+        report.sources_failed["nbb_authentic"] = str(exc)
+        log.error("nbb_failed", error=str(exc))
+    finally:
+        report.duration_per_source["nbb_authentic"] = round(time.monotonic() - t0, 2)
+
+
+async def _run_website(
+    config: PipelineConfig,
+    pool: asyncpg.Pool,
+    polite_client: PoliteClient,
+    started_at: datetime,
+    report: PipelineReport,
+) -> None:
+    t0 = time.monotonic()
+    log = logger.bind(sector=config.sector, city=config.city)
+    try:
+        from scraper.sources.website.ingester import ingest_kbos as website_ingest
+
+        pairs = await _get_website_pairs(pool, started_at)
+        if pairs:
+            web_report = await website_ingest(pairs, pool, polite_client, skip_recent_hours=0)
+            report.sources_run.append("website")
+            report.observations_inserted_per_source["website"] = web_report.observations_inserted
+            log.info(
+                "website_done",
+                kbos=web_report.kbos_processed,
+                observations=web_report.observations_inserted,
+            )
+        else:
+            report.sources_skipped.append("website")
+            log.info("website_skipped_no_pairs")
+    except Exception as exc:
+        report.sources_failed["website"] = str(exc)
+        log.error("website_failed", error=str(exc))
+    finally:
+        report.duration_per_source["website"] = round(time.monotonic() - t0, 2)
+
+
+async def _run_search(
+    config: PipelineConfig,
+    pool: asyncpg.Pool,
+    polite_client: PoliteClient,
+    started_at: datetime,
+    report: PipelineReport,
+) -> None:
+    t0 = time.monotonic()
+    log = logger.bind(sector=config.sector, city=config.city)
+    try:
+        from scraper.sources.ddg_brave.brave_client import BraveClient
+        from scraper.sources.ddg_brave.ddg_client import DdgClient
+        from scraper.sources.ddg_brave.ingester import validate_companies
+
+        brave_client: BraveClient | None = None
+        if config.brave_subscription_key:
+            brave_client = BraveClient(polite_client, config.brave_subscription_key)
+        ddg_client = DdgClient()
+
+        inputs = await _get_placeholder_inputs(pool, started_at)
+        if inputs:
+            search_report = await validate_companies(
+                inputs,
+                pool,
+                polite_client,
+                brave_client=brave_client,
+                ddg_client=ddg_client,
+                skip_recent_hours=0,
+            )
+            report.sources_run.append("ddg_brave")
+            report.observations_inserted_per_source["ddg_brave"] = (
+                search_report.observations_inserted
+            )
+            log.info(
+                "search_done",
+                queries=search_report.queries_processed,
+                observations=search_report.observations_inserted,
+            )
+        else:
+            report.sources_skipped.append("ddg_brave")
+            log.info("search_skipped_no_placeholders")
+    except Exception as exc:
+        report.sources_failed["ddg_brave"] = str(exc)
+        log.error("search_failed", error=str(exc))
+    finally:
+        report.duration_per_source["ddg_brave"] = round(time.monotonic() - t0, 2)
+
+
 async def run_pipeline(
     config: PipelineConfig,
     pool: asyncpg.Pool,
     polite_client: PoliteClient,
 ) -> PipelineReport:
-    """Run all six sources in dependency order with per-source error isolation."""
+    """Run all six sources in two dependency waves with per-source error isolation.
 
+    Wave A (no deps):   kbo_dump || goudengids
+    Wave B (need A):    kbopub_html || nbb_authentic || website || ddg_brave
+    Then:               consolidate → refresh materialised view
+
+    Sources hit different hosts, so running them in parallel does not violate
+    the per-host politeness policy enforced by HostLimiter.
+    """
     t0 = time.monotonic()
     started_at = datetime.now(tz=UTC)
     report = PipelineReport(
@@ -285,237 +647,49 @@ async def run_pipeline(
     log = logger.bind(sector=config.sector, city=config.city)
     log.info("pipeline_started")
 
-    tmp_dir: Path | None = None
+    # ── Wave A: kbo_dump (CPU-heavy ZIP parse — runs alone to avoid starving Chromium) ──
+    async with asyncio.TaskGroup() as tg_a:
+        if config.do_kbo_dump:
+            tg_a.create_task(_run_kbo_dump(config, pool, started_at, report))
+        else:
+            report.sources_skipped.append("kbo_dump")
+            report.duration_per_source["kbo_dump"] = 0.0
 
-    # ── Source 1: kbo_dump ─────────────────────────────────────────────────
-    _t_src = time.monotonic()
-    if config.do_kbo_dump:
-        try:
-            from scraper.sources.kbo_dump.ingester import ingest_zip
+    # ── Wave B: network sources (goudengids gets CPU headroom now that ZIP is done) ──
+    async with asyncio.TaskGroup() as tg_b:
+        if config.do_goudengids:
+            tg_b.create_task(_run_goudengids(config, pool, polite_client, report))
+        else:
+            report.sources_skipped.append("goudengids")
+            report.duration_per_source["goudengids"] = 0.0
 
-            if config.use_fixture:
-                mini_dir = (
-                    Path(__file__).parents[3] / "tests" / "golden" / "kbo_dump" / "synthetic_mini"
-                )
-                zip_path, tmp_dir = _create_fixture_zip(mini_dir)
-            elif config.fixture_zip_path is not None:
-                zip_path = config.fixture_zip_path
-            else:
-                raise ValueError(
-                    "kbo_dump requires --use-fixture or --fixture-zip path. "
-                    "Real KBO Open Data ZIP must be provided explicitly."
-                )
+        if config.do_kbopub:
+            tg_b.create_task(_run_kbopub(config, pool, polite_client, started_at, report))
+        else:
+            report.sources_skipped.append("kbopub_html")
+            report.duration_per_source["kbopub_html"] = 0.0
 
-            nace_filter: list[str] | None = None
-            if not config.use_fixture:
-                nace_filter = _SECTOR_NACE_PREFIXES.get(config.sector_slug)
+        if config.do_nbb and config.nbb_subscription_key:
+            tg_b.create_task(_run_nbb(config, pool, polite_client, started_at, report))
+        else:
+            reason = "no_key" if not config.nbb_subscription_key else "disabled"
+            report.sources_skipped.append("nbb_authentic")
+            report.duration_per_source["nbb_authentic"] = 0.0
+            log.debug("nbb_skipped", reason=reason)
 
-            kbo_report = await ingest_zip(
-                zip_path,
-                pool,
-                sector_filter=nace_filter,
-                city_filter=[config.city],
-                refresh_view=False,
-            )
-            report.sources_run.append("kbo_dump")
-            report.observations_inserted_per_source["kbo_dump"] = kbo_report.observations_inserted
-            log.info(
-                "kbo_dump_done",
-                observations=kbo_report.observations_inserted,
-                enterprises=kbo_report.enterprises_processed,
-            )
-        except Exception as exc:
-            report.sources_failed["kbo_dump"] = str(exc)
-            log.error("kbo_dump_failed", error=str(exc))
-        finally:
-            if tmp_dir is not None:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-    else:
-        report.sources_skipped.append("kbo_dump")
-    report.duration_per_source["kbo_dump"] = round(time.monotonic() - _t_src, 2)
+        if config.do_website:
+            tg_b.create_task(_run_website(config, pool, polite_client, started_at, report))
+        else:
+            report.sources_skipped.append("website")
+            report.duration_per_source["website"] = 0.0
 
-    # ── Source 2: goudengids ───────────────────────────────────────────────
-    _t_src = time.monotonic()
-    if config.do_goudengids:
-        try:
-            from scraper.sources.goudengids.fetcher import BrowserListingFetcher
-            from scraper.sources.goudengids.ingester import ingest_sector_city
+        if config.do_search:
+            tg_b.create_task(_run_search(config, pool, polite_client, started_at, report))
+        else:
+            report.sources_skipped.append("ddg_brave")
+            report.duration_per_source["ddg_brave"] = 0.0
 
-            domain = "pagesdor.be" if config.lang == "fr" else "goudengids.be"
-            fetcher = BrowserListingFetcher(polite_client.limiter, domain=domain)
-            slug = _get_goudengids_slug(config)
-
-            goud_report = await ingest_sector_city(
-                slug,
-                config.city,
-                pool,
-                fetcher,
-                max_pages=config.max_pages,
-                lang=config.lang,
-                skip_recent_hours=0,
-            )
-            report.sources_run.append("goudengids")
-            report.observations_inserted_per_source["goudengids"] = (
-                goud_report.observations_inserted
-            )
-            report.placeholders_created += goud_report.placeholders_created
-            log.info(
-                "goudengids_done",
-                observations=goud_report.observations_inserted,
-                placeholders=goud_report.placeholders_created,
-            )
-        except Exception as exc:
-            report.sources_failed["goudengids"] = str(exc)
-            log.error("goudengids_failed", error=str(exc))
-    else:
-        report.sources_skipped.append("goudengids")
-    report.duration_per_source["goudengids"] = round(time.monotonic() - _t_src, 2)
-
-    # ── Source 3: kbopub_html ──────────────────────────────────────────────
-    _t_src = time.monotonic()
-    if config.do_kbopub:
-        try:
-            from scraper.sources.kbopub_html.ingester import ingest_kbos as kbopub_ingest
-
-            real_kbos = await _get_real_kbos(pool, started_at)
-            skip_hours = 0
-            if not real_kbos:
-                # kbo_dump was skipped (no ZIP) — fall back to pre-loaded DB data.
-                nace_prefixes = _SECTOR_NACE_PREFIXES.get(config.sector_slug, [])
-                if nace_prefixes:
-                    real_kbos = await _get_real_kbos_for_sector_city(
-                        pool, nace_prefixes, config.city
-                    )
-                    skip_hours = 24  # don't re-scrape companies enriched in last 24 h
-            if real_kbos:
-                kbopub_report = await kbopub_ingest(
-                    real_kbos,
-                    pool,
-                    polite_client.limiter,
-                    lang=config.lang,
-                    skip_recent_hours=skip_hours,
-                )
-                report.sources_run.append("kbopub_html")
-                report.observations_inserted_per_source["kbopub_html"] = (
-                    kbopub_report.observations_inserted
-                )
-                log.info(
-                    "kbopub_done",
-                    kbos=kbopub_report.kbos_processed,
-                    observations=kbopub_report.observations_inserted,
-                )
-            else:
-                report.sources_skipped.append("kbopub_html")
-                log.info("kbopub_skipped_no_real_kbos")
-        except Exception as exc:
-            report.sources_failed["kbopub_html"] = str(exc)
-            log.error("kbopub_failed", error=str(exc))
-    else:
-        report.sources_skipped.append("kbopub_html")
-    report.duration_per_source["kbopub_html"] = round(time.monotonic() - _t_src, 2)
-
-    # ── Source 4: nbb_authentic ────────────────────────────────────────────
-    _t_src = time.monotonic()
-    if config.do_nbb and config.nbb_subscription_key:
-        try:
-            from scraper.sources.nbb_authentic.client import NbbClient
-            from scraper.sources.nbb_authentic.ingester import ingest_kbos as nbb_ingest
-
-            nbb_client = NbbClient(polite_client, config.nbb_subscription_key)
-            real_kbos = await _get_real_kbos(pool, started_at)
-            if real_kbos:
-                nbb_report = await nbb_ingest(real_kbos, pool, nbb_client, skip_recent_hours=0)
-                report.sources_run.append("nbb_authentic")
-                report.observations_inserted_per_source["nbb_authentic"] = (
-                    nbb_report.observations_inserted
-                )
-                log.info(
-                    "nbb_done",
-                    kbos=nbb_report.kbos_processed,
-                    observations=nbb_report.observations_inserted,
-                )
-            else:
-                report.sources_skipped.append("nbb_authentic")
-        except Exception as exc:
-            report.sources_failed["nbb_authentic"] = str(exc)
-            log.error("nbb_failed", error=str(exc))
-    else:
-        reason = "no_key" if not config.nbb_subscription_key else "disabled"
-        report.sources_skipped.append("nbb_authentic")
-        log.debug("nbb_skipped", reason=reason)
-    report.duration_per_source["nbb_authentic"] = round(time.monotonic() - _t_src, 2)
-
-    # ── Source 5: website ──────────────────────────────────────────────────
-    _t_src = time.monotonic()
-    if config.do_website:
-        try:
-            from scraper.sources.website.ingester import ingest_kbos as website_ingest
-
-            pairs = await _get_website_pairs(pool, started_at)
-            if pairs:
-                web_report = await website_ingest(pairs, pool, polite_client, skip_recent_hours=0)
-                report.sources_run.append("website")
-                report.observations_inserted_per_source["website"] = (
-                    web_report.observations_inserted
-                )
-                log.info(
-                    "website_done",
-                    kbos=web_report.kbos_processed,
-                    observations=web_report.observations_inserted,
-                )
-            else:
-                report.sources_skipped.append("website")
-                log.info("website_skipped_no_pairs")
-        except Exception as exc:
-            report.sources_failed["website"] = str(exc)
-            log.error("website_failed", error=str(exc))
-    else:
-        report.sources_skipped.append("website")
-    report.duration_per_source["website"] = round(time.monotonic() - _t_src, 2)
-
-    # ── Source 6: ddg_brave ────────────────────────────────────────────────
-    _t_src = time.monotonic()
-    if config.do_search:
-        try:
-            from scraper.sources.ddg_brave.brave_client import BraveClient
-            from scraper.sources.ddg_brave.ddg_client import DdgClient
-            from scraper.sources.ddg_brave.ingester import validate_companies
-
-            brave_client: BraveClient | None = None
-            if config.brave_subscription_key:
-                brave_client = BraveClient(polite_client, config.brave_subscription_key)
-            ddg_client = DdgClient()
-
-            inputs = await _get_placeholder_inputs(pool, started_at)
-            if inputs:
-                search_report = await validate_companies(
-                    inputs,
-                    pool,
-                    polite_client,
-                    brave_client=brave_client,
-                    ddg_client=ddg_client,
-                    skip_recent_hours=0,
-                )
-                report.sources_run.append("ddg_brave")
-                report.observations_inserted_per_source["ddg_brave"] = (
-                    search_report.observations_inserted
-                )
-                log.info(
-                    "search_done",
-                    queries=search_report.queries_processed,
-                    observations=search_report.observations_inserted,
-                )
-            else:
-                report.sources_skipped.append("ddg_brave")
-                log.info("search_skipped_no_placeholders")
-        except Exception as exc:
-            report.sources_failed["ddg_brave"] = str(exc)
-            log.error("search_failed", error=str(exc))
-    else:
-        report.sources_skipped.append("ddg_brave")
-    report.duration_per_source["ddg_brave"] = round(time.monotonic() - _t_src, 2)
-
-    # ── Consolidation pass ─────────────────────────────────────────────────
+    # ── Consolidation pass ─────────────────────────────────────────────────────
     try:
         matches = await consolidate(pool)
         report.placeholders_resolved = len(matches)
@@ -523,11 +697,20 @@ async def run_pipeline(
     except Exception as exc:
         log.error("consolidation_failed", error=str(exc))
 
-    # ── Refresh materialised view ──────────────────────────────────────────
+    # ── Refresh materialised view ──────────────────────────────────────────────
     try:
         await pool.execute("SELECT refresh_companies_current()")
     except Exception as exc:
         log.error("matview_refresh_failed", error=str(exc))
+
+    # ── Refresh prospect scores ────────────────────────────────────────────────
+    try:
+        from scraper.scoring.prospect import refresh_prospect_scores as _refresh_ps
+
+        n = await _refresh_ps(pool)
+        log.info("prospect_scores_refreshed", kbos=n)
+    except Exception as exc:
+        log.error("prospect_scores_refresh_failed", error=str(exc))
 
     report.ended_at = datetime.now(tz=UTC)
     report.companies_in_view = await _count_companies_in_view(pool)

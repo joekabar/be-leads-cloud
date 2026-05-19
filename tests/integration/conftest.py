@@ -84,4 +84,5 @@ async def pg_pool(test_db_dsn: str) -> AsyncGenerator[asyncpg.Pool, None]:  # ty
 async def clean_pool(pg_pool: asyncpg.Pool) -> AsyncGenerator[asyncpg.Pool, None]:  # type: ignore[type-arg]
     """pg_pool with all data tables truncated before each test."""
     await pg_pool.execute("TRUNCATE observations, jobs, run_log RESTART IDENTITY CASCADE")
+    await pg_pool.execute("TRUNCATE prospect_scores")
     yield pg_pool

@@ -19,15 +19,15 @@ _SECTORS_TOML = (
 )
 
 
-def _all_sector_slugs() -> list[str]:
+def _all_sector_keys() -> list[str]:
     with _SECTORS_TOML.open("rb") as fh:
         data = tomllib.load(fh)
-    return [str(e["nl_slug"]) for e in data.values() if isinstance(e, dict) and "nl_slug" in e]
+    return [k for k, v in data.items() if isinstance(v, dict)]
 
 
 class TestNacePrefixCoverage:
     def test_all_sectors_have_nace_prefix(self) -> None:
-        missing = [s for s in _all_sector_slugs() if s not in _SECTOR_NACE_PREFIXES]
+        missing = [s for s in _all_sector_keys() if s not in _SECTOR_NACE_PREFIXES]
         assert missing == [], f"Sectors missing NACE prefix: {missing}"
 
     def test_no_empty_prefix_lists(self) -> None:
@@ -64,6 +64,41 @@ class TestNacePrefixCoverage:
             ("elektriciens", "4321"),
             ("metselaars", "4120"),
             ("garagisten", "4520"),
+            # T1 industrial sectors
+            ("energieproducenten", "3511"),
+            ("energieproducenten", "3512"),
+            ("chemiebedrijven", "201"),
+            ("chemiebedrijven", "206"),
+            ("farmaceutische-bedrijven", "212"),
+            ("staalindustrie", "241"),
+            ("petroleumraffinaderijen", "192"),
+            # T2 industrial sectors
+            ("waterzuivering", "3600"),
+            ("automobielfabrieken", "291"),
+            ("voedingsindustrie", "101"),
+            ("voedingsindustrie", "105"),
+            ("machinebouwers", "281"),
+            # T1 new sectors
+            ("datacenters", "6190"),
+            ("spoortransport", "4920"),
+            # T2 new sectors
+            ("diervoederfabricage", "1091"),
+            ("voedingsindustrie", "109"),
+            ("textielfabricage", "131"),
+            ("textielfabricage", "132"),
+            # T3 industrial sectors
+            ("ziekenhuizen", "8610"),
+            ("havenactiviteiten", "5222"),
+            ("logistiekverleners", "5210"),
+            ("bouwbedrijven", "4212"),
+            ("universiteiten", "8542"),
+            # T3 new sectors
+            ("grote-bedrijfsgebouwen", "6820"),
+            ("steengroeven", "0812"),
+            ("tuinbouwbedrijven-industrieel", "0113"),
+            ("tuinbouwbedrijven-industrieel", "013"),
+            ("intensieve-veehouderij", "0147"),
+            ("snellaadstations", "4799"),
         ],
     )
     def test_known_sector_prefix(self, sector: str, expected_prefix: str) -> None:

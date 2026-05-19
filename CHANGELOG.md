@@ -7,6 +7,135 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance (pipeline — stage-once KBO batch + epoch-level consolidation/scoring)
+
+Eliminates the biggest sources of wall-time waste: re-parsing the 1.5 GB ZIP per sector,
+running consolidation/scoring after every sector, and leaving kbopub/nbb/website idle during
+the goudengids loop. Target: ~1.5 h for a 95-sector all-sectors batch vs. ~12 h previously.
+
+**`db/migrations/004_kbo_stage.sql`** (new)
+- 5 staging tables (`kbo_stage_enterprise`, `kbo_stage_address`, `kbo_stage_denomination`,
+  `kbo_stage_contact`, `kbo_stage_activity`) keyed by `entity_number + snapshot_date`.
+- `raw_row JSONB` on each table for forward-compatible schema-drift handling.
+- Indexes: entity_number, snapshot_date, composite city (lower municipality_nl/fr), NACE prefix.
+
+**`db/migrations/005_pipeline_progress.sql`** (new)
+- `pipeline_progress` mutable telemetry table (one row per run) for live UI progress reporting.
+
+**`sources/kbo_dump/staging.py`** (new)
+- `stage_zip(zip_path, pool, *, force=False, progress=None)` — streams all 5 CSVs once into
+  staging tables via concurrent `asyncio.TaskGroup`. Idempotent by snapshot_date; `force=True`
+  deletes and re-inserts. Logs `kbo_schema_drift_detected` on unknown CSV columns.
+- `cleanup_old_snapshots(pool, keep_n)` — deletes all but the N most-recent snapshots.
+
+**`pipeline/progress.py`** (new)
+- `ProgressReporter(pool, run_id)` with `async report(phase, stage, ...)` — upserts into
+  `pipeline_progress` for live UI monitoring.
+
+**`pipeline/batch.py`** (new)
+- `BatchConfig` + `run_batch(config, pool, polite_client)` — epoch-aware orchestrator.
+- Phase A: DELETE old snapshot obs, filter entities from staging tables by city + NACE union,
+  bulk-COPY observations using existing transformer functions.
+- Phase B/C1 overlap: goudengids loop (sequential, WAF-bound) runs concurrently with
+  kbopub_html + nbb_authentic + website enrichers in one `asyncio.TaskGroup`.
+- Phase C2: ddg_brave after Phase B (needs all placeholders).
+- Phases D/E/F: single consolidation → single matview refresh → single prospect scoring pass.
+
+**`pipeline/batch_cli.py`** (new): `be-leads-pipeline-batch --city X [--sector S | --all-sectors]`
+
+**`sources/kbo_dump/stage_cli.py`** (new): `be-leads-kbo-stage <zip_path>` one-time ingest CLI.
+
+**`sources/kbo_dump/cleanup_cli.py`** (new): `be-leads-cleanup-stage --keep N`.
+
+**`pipeline/orchestrator.py`** (extended)
+- Added `recyclagebedrijven-industrieel` and `transportbedrijven-zwaar` to `_SECTOR_NACE_PREFIXES`.
+
+**`ui/pages/kbo_data.py`** (new) — "KBO Data Management" Streamlit page with 5 tabs:
+- Available ZIPs (stage button with background thread + live queue polling)
+- Staged Snapshots (row counts per table, force re-stage button)
+- Live Progress (auto-refresh from `pipeline_progress` table)
+- Cleanup (keep-N slider + run button)
+- New Leads diff view (since-date or between-two-snapshots modes, CSV export)
+
+**`ui/queries/snapshots.py`** (new) — DB query helpers used by the KBO Data Management page.
+
+Tests added:
+- `tests/unit/kbo_dump/test_staging.py` — pure-Python tests for `_pg_text_escape`, `StagingReport`.
+- `tests/unit/pipeline/test_batch.py` — `BatchConfig`, `_resolve_goudengids_slug`, `BatchReport`.
+- `tests/unit/pipeline/test_sector_nace.py` — updated to use section keys (not nl_slug values).
+- `tests/integration/pipeline/test_batch_e2e.py` — 9 integration tests covering: staging
+  idempotency, force re-stage, observations inserted, no-duplicate re-run, scoring, cleanup,
+  missing-staging error, unknown-city zero-result.
+
+
+
+### Phase 0: Industrial sector expansion + HV-tier prospect scoring
+
+Adds a `ProspectScore` alongside `LeadScore` — orthogonal signals answering "how commercially
+interesting is this company to Saive?" vs. "how well do we know it?".
+
+**`scoring/hv_prior.py`** (new)
+- `_HV_PRIORS` dict: 100+ NACE prefixes → HV-probability in [0,1], organised into T1–T4 tiers.
+- `hv_probability(nace_codes)`: longest-prefix match returning max probability across all codes.
+  Unknown prefixes contribute 0.0 (not a default 0.5) — uncovered sectors are not prioritised.
+
+**`scoring/prospect.py`** (new)
+- `ProspectScore` frozen dataclass: `hv_probability`, `business_activity`, `contact_quality`,
+  `growth_signal`, `overall_prospect` (all ∈ [0,1]).
+- Weights: `0.45·hv + 0.20·activity + 0.20·contact + 0.15·growth`. `growth_signal = 0.0` Phase 0.
+- `refresh_prospect_scores(pool)`: reads `companies_current`, scores every KBO, bulk-upserts to
+  `prospect_scores` plain table via `INSERT … ON CONFLICT DO UPDATE`. Returns count of upserted rows.
+
+**`db/migrations/003_prospect_scores.sql`** (new)
+- Plain table (not matview) with `NUMERIC(7,6)` score columns and `computed_at TIMESTAMPTZ`.
+- Plain table required because the Python longest-prefix-match cannot be expressed in SQL.
+
+**`pipeline/orchestrator.py`** (extended)
+- Added ~15 T1–T4 industrial sector slugs to `_SECTOR_NACE_PREFIXES`: energy, chemicals, pharma,
+  steel, automotive, water/sewage, food, waste, hospitals, ports, logistics, construction, etc.
+- Goudengids step skips gracefully (logs `goudengids_skipped_kbo_only_sector`) when sector slug
+  is not in `sectors.toml` — KBO-only industrial sectors don't trigger a ValueError.
+- Calls `refresh_prospect_scores` after each `refresh_companies_current` run.
+
+**`ui/data.py`** (extended)
+- Bulk-fetches `overall_prospect` from `prospect_scores` and merges into result rows.
+- Sort order updated: `overall_prospect DESC` primary, `score_overall DESC` secondary.
+
+**`ui/export.py`** (new) + `pyproject.toml` entry `be-leads-export`
+- `export_csv(pool, out_path, *, run_id=None) -> int`: ranked CSV export of all KBOs.
+- Columns: kbo_number, name, postal_code, city, nace_code, tier (T1–T4), phone, email, website,
+  status, founding_date, revenue_2023, revenue_2024, employees_2024, score columns.
+- Sorted by `overall_prospect DESC`. NULL fields become empty string.
+- CLI: `uv run be-leads-export --out leads.csv [--run-id <uuid>]`.
+
+### Performance (pipeline — wave-based parallelism + consolidation speedup)
+
+Reduced wall-clock pipeline time by ~30% on a real `elektriciens × oostende` run
+(1592 s → projected ~710 s for source phase) without changing the politeness policy.
+
+**Wave-based orchestrator** (`src/scraper/pipeline/orchestrator.py`)
+- Replaced six sequential source blocks in `run_pipeline` with two `asyncio.TaskGroup` waves.
+  Wave A: `kbo_dump || goudengids`. Wave B: `kbopub_html || nbb_authentic || website || ddg_brave`.
+- Each wave is a hard barrier — Wave B starts only after both Wave A tasks complete.
+- Each source extracted into a `_run_<name>` coroutine that catches all exceptions internally,
+  so a failure in one Wave B source cannot cancel its siblings.
+- `HostLimiter` already enforces per-host rate + concurrency limits independently for every
+  host, so running sources in parallel across different hosts does not violate the politeness policy.
+
+**Consolidation speedup** (`src/scraper/pipeline/consolidate.py`)
+- Pre-built `postal_index` and `city_index` (`dict[str, list[_KboInfo]]`) once before the
+  placeholder loop — Pass 1 and 2 are now O(1) bucket lookups instead of O(N) list scans.
+- Pass 3 (name-only) uses `rapidfuzz.process.extractOne` with `score_cutoff=90.0` — the C
+  inner loop releases the GIL, ~10-50x faster than the previous Python for-loop over 1.9 M reals.
+- Matching loop runs in `asyncio.to_thread` so the event loop stays responsive during the
+  CPU-bound phase (~591 s previously).
+
+Tests added:
+- `tests/unit/pipeline/test_consolidate.py` — `TestBestMatchWithIndexes`: verifies index
+  path produces identical results to baseline across all existing scenarios.
+- `tests/integration/pipeline/test_orchestrator.py` — `test_wave_b_starts_after_wave_a_completes`,
+  `test_wave_b_failure_does_not_cancel_siblings`, `test_sources_run_recorded`.
+
 ### Fixed (NBB ingester — transient errors abort entire source)
 
 `RetriesExhaustedError` and `TransientServerError` from a single KBO (e.g. NBB returning

@@ -204,7 +204,7 @@ class TestFetchResultsForRun:
                 value={"street": "Lange Van", "postal_code": "2060", "city": "Antwerpen"},
             ),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT))
         assert len(rows) == 1
         assert rows[0]["kbo_number"] == "0439401387"
@@ -219,7 +219,7 @@ class TestFetchResultsForRun:
                 value={"street": "Some Street", "postal_code": "9000", "city": "Gent"},
             ),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, city="Antwerpen"))
         assert rows == []
 
@@ -232,7 +232,7 @@ class TestFetchResultsForRun:
                 value={"street": "Lange Van", "postal_code": "2060", "city": "Antwerpen"},
             ),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, city="antwerpen"))
         assert len(rows) == 1
 
@@ -250,7 +250,7 @@ class TestFetchResultsForRun:
                 source="goudengids",
             ),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="elektriciens"))
         assert len(rows) == 1, "placeholder KBO with no NACE obs must not be filtered out"
 
@@ -261,7 +261,7 @@ class TestFetchResultsForRun:
         obs_records = [
             _mock_record(field="nace_code", value={"code": "4711"}),  # retail, not electrician
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="elektriciens"))
         assert rows == [], "company with non-matching NACE must be excluded"
 
@@ -274,7 +274,7 @@ class TestFetchResultsForRun:
                 field="nace_code", value={"code": "43211"}
             ),  # within 4321 prefix (no dots)
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="elektriciens"))
         assert len(rows) == 1
 
@@ -287,7 +287,7 @@ class TestFetchResultsForRun:
             # 63110 = data processing / hosting — matches "631" prefix.
             _mock_record(field="nace_code", value={"code": "63110"}),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="informaticabedrijven"))
         assert len(rows) == 1, "company with NACE 63110 (second prefix) must not be filtered out"
 
@@ -299,7 +299,7 @@ class TestFetchResultsForRun:
             # informaticabedrijven prefix "582" covers software publishing (58210, 58290).
             _mock_record(field="nace_code", value={"code": "58290"}),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="informaticabedrijven"))
         assert len(rows) == 1, "company with NACE 58290 (third prefix) must not be filtered out"
 
@@ -313,7 +313,7 @@ class TestFetchResultsForRun:
                 value={"street": "X", "postal_code": "2018", "city": "Antwerpen"},
             ),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, postcodes=("2000", "2020")))
         assert rows == [], "company with postcode 2018 must be excluded when filter is {2000,2020}"
 
@@ -327,7 +327,7 @@ class TestFetchResultsForRun:
                 value={"street": "X", "postal_code": "2000", "city": "Antwerpen"},
             ),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, postcodes=("2000", "2020")))
         assert len(rows) == 1
 
@@ -341,7 +341,7 @@ class TestFetchResultsForRun:
                 value={"street": "X", "postal_code": "2018", "city": "Antwerpen"},
             ),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, postcodes=None))
         assert len(rows) == 1
 
@@ -358,7 +358,7 @@ class TestFetchResultsForRun:
                 source="goudengids",
             ),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         asyncio.run(fetch_results_for_run(pool, _STARTED_AT, sector="bakkers", city="oostende"))
         # The discovery query (first fetch call) must include sector slugs as a
         # positional arg so the JOIN on run_log.sector_slug filters out companies
@@ -384,7 +384,7 @@ class TestFetchResultsForRun:
                 confidence=0.85,
             ),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, min_score=0.9))
         assert rows == [], "low-score row must be filtered when min_score=0.9"
 
@@ -392,7 +392,7 @@ class TestFetchResultsForRun:
         pool = AsyncMock()
         kbo_record = {"kbo_number": "0439401387"}
         obs_records = [_mock_record(field="name", value={"text": "Bellock NV"})]  # no phone
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, require_phone=True))
         assert rows == [], "row without phone must be filtered when require_phone=True"
 
@@ -402,7 +402,7 @@ class TestFetchResultsForRun:
         obs_records = [
             _mock_record(field="website", value={"url": "https://x.be", "tld": "be"}),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, require_website=True))
         assert len(rows) == 1
 
@@ -410,7 +410,7 @@ class TestFetchResultsForRun:
         pool = AsyncMock()
         kbo_record = {"kbo_number": "0439401387"}
         obs_records = [_mock_record(field="founding_date", value={"iso": "1985-01-01"})]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, founded_after="2000-01-01"))
         assert rows == []
 
@@ -419,7 +419,7 @@ class TestFetchResultsForRun:
         pool = AsyncMock()
         kbo_record = {"kbo_number": "0439401387"}
         obs_records = [_mock_record(field="name", value={"text": "X"})]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, founded_after="2000-01-01"))
         assert len(rows) == 1, "unknown founding_date must pass through"
 
@@ -427,7 +427,7 @@ class TestFetchResultsForRun:
         pool = AsyncMock()
         kbo_record = {"kbo_number": "0439401387"}
         obs_records = [_mock_record(field="revenue_2023", value={"eur": 100_000.0})]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, min_revenue=1_000_000.0))
         assert rows == []
 
@@ -451,7 +451,7 @@ class TestFetchResultsForRun:
                 value={"text": "Minimal NV"},
             ),
         ]
-        pool.fetch.side_effect = [kbo_records, obs_bellock, obs_minimal]
+        pool.fetch.side_effect = [kbo_records, obs_bellock, obs_minimal, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT))
         assert len(rows) == 2
         assert rows[0]["score_overall"] >= rows[1]["score_overall"]
@@ -489,7 +489,7 @@ class TestSizeCategory:
                 value={"code": "010", "label": "Eenmanszaak", "size_category": "Solo"},
             ),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(
             fetch_results_for_run(pool, _STARTED_AT, size_categories=["SME", "Large"])
         )
@@ -504,7 +504,7 @@ class TestSizeCategory:
                 value={"code": "017", "label": "BV", "size_category": "SME"},
             ),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(
             fetch_results_for_run(pool, _STARTED_AT, size_categories=["SME", "Large"])
         )
@@ -520,7 +520,7 @@ class TestSizeCategory:
                 value={"code": "010", "label": "Eenmanszaak", "size_category": "Solo"},
             ),
         ]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, size_categories=None))
         assert len(rows) == 1
 
@@ -529,6 +529,6 @@ class TestSizeCategory:
         pool = AsyncMock()
         kbo_record = {"kbo_number": "0439401387"}
         obs_records = [_mock_record(field="name", value={"text": "Mystery Co"})]
-        pool.fetch.side_effect = [[kbo_record], obs_records]
+        pool.fetch.side_effect = [[kbo_record], obs_records, []]
         rows = asyncio.run(fetch_results_for_run(pool, _STARTED_AT, size_categories=["SME"]))
         assert len(rows) == 1, "company with unknown size must pass through (don't filter unknowns)"

@@ -95,10 +95,15 @@ class BrowserListingFetcher:
         return self
 
     async def __aexit__(self, *_: object) -> None:
+        # Suppress cleanup errors — on Windows, browser.close() can raise after a
+        # crash/connection-reset, which would replace the original exception with one
+        # whose str() is empty (masking the real cause in logs).
         if self._browser is not None:
-            await self._browser.close()
+            with contextlib.suppress(Exception):
+                await self._browser.close()
         if self._pw is not None:
-            await self._pw.stop()
+            with contextlib.suppress(Exception):
+                await self._pw.stop()
         self._browser = None
         self._pw = None
         self._context = None
@@ -138,10 +143,21 @@ class BrowserListingFetcher:
 
         page = await self._context.new_page()
         try:
-            await page.goto(url, wait_until="load", timeout=30_000)
-            with contextlib.suppress(PlaywrightTimeoutError):
+            # domcontentloaded is sufficient — listing cards are server-rendered HTML;
+            # waiting for the full load event times out on slow Imperva JS payloads.
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+            except (PlaywrightTimeoutError, TimeoutError):
+                logger.warning("goudengids_page_nav_timeout", url=url)
+            with contextlib.suppress(PlaywrightTimeoutError, TimeoutError):
                 await page.wait_for_selector(_LISTING_SELECTOR, timeout=20_000)
-            html: str = await page.content()
+            # page.content() can hang after a failed navigation on Windows when the
+            # Playwright Node.js IPC times out — catch asyncio TimeoutError here too.
+            try:
+                html: str = await page.content()
+            except (PlaywrightTimeoutError, TimeoutError):
+                logger.warning("goudengids_page_content_timeout", url=url)
+                html = ""
         finally:
             await page.close()
 

@@ -403,3 +403,170 @@ nl_slug = "marktzaken"
 fr_slug = "marches"
 display = "Marktkramen"
 emoji = "🛍️"
+
+# ── Industrial / heavy sectors ─────────────────────────────────────────────
+# Slugs that exist on goudengids.be/pagesdor.be.
+# Sectors with no public-directory equivalent have goudengids_sector_not_indexed = true;
+# be-leads-pipeline-batch will log a warning and continue rather than fail.
+
+[bouwbedrijven]
+nl_slug = "aannemers"
+fr_slug = "entrepreneurs-generaux"
+display = "Bouwbedrijven"
+emoji = "🏗️"
+
+[ziekenhuizen]
+nl_slug = "ziekenhuizen"
+fr_slug = "hopitaux"
+display = "Ziekenhuizen"
+emoji = "🏥"
+
+[universiteiten]
+nl_slug = "universiteiten"
+fr_slug = "universites"
+display = "Universiteiten"
+emoji = "🎓"
+
+[logistiekverleners]
+nl_slug = "logistiek"
+fr_slug = "logistique"
+display = "Logistiek"
+emoji = "📦"
+
+[recyclagebedrijven-industrieel]
+nl_slug = "recyclagebedrijven"
+fr_slug = "entreprises-recyclage"
+display = "Recyclagebedrijven (industrieel)"
+emoji = "♻️"
+
+[transportbedrijven-zwaar]
+nl_slug = "vrachttransport"
+fr_slug = "transport-routier"
+display = "Vrachttransport"
+emoji = "🚛"
+
+[machinebouwers]
+nl_slug = "machinebouw"
+fr_slug = "construction-machines"
+display = "Machinebouw"
+emoji = "⚙️"
+
+[metaalverwerkingsbedrijven]
+nl_slug = "metaalbewerking"
+fr_slug = "travail-des-metaux"
+display = "Metaalbewerking"
+emoji = "🔩"
+
+[voedingsindustrie]
+nl_slug = "voedingsindustrie"
+fr_slug = "industrie-alimentaire"
+display = "Voedingsindustrie"
+emoji = "🏭"
+
+# Sectors with no meaningful goudengids.be presence — batch logs warning and skips.
+# Listed here so batch_cli.py can distinguish "unknown slug" from "indexed but empty".
+
+[energieproducenten]
+nl_slug = ""
+fr_slug = ""
+display = "Energieproducenten"
+emoji = "⚡"
+goudengids_sector_not_indexed = true
+
+[chemiebedrijven]
+nl_slug = ""
+fr_slug = ""
+display = "Chemiebedrijven"
+emoji = "🧪"
+goudengids_sector_not_indexed = true
+
+[staalindustrie]
+nl_slug = ""
+fr_slug = ""
+display = "Staalindustrie"
+emoji = "🏭"
+goudengids_sector_not_indexed = true
+
+[farmaceutische-bedrijven]
+nl_slug = ""
+fr_slug = ""
+display = "Farmaceutische bedrijven"
+emoji = "💊"
+goudengids_sector_not_indexed = true
+
+[petroleumraffinaderijen]
+nl_slug = ""
+fr_slug = ""
+display = "Petroleumraffinaderijen"
+emoji = "🛢️"
+goudengids_sector_not_indexed = true
+
+[datacenters]
+nl_slug = ""
+fr_slug = ""
+display = "Datacenters"
+emoji = "🖥️"
+goudengids_sector_not_indexed = true
+
+[elektronica-fabrieken]
+nl_slug = ""
+fr_slug = ""
+display = "Elektronica-fabrieken"
+emoji = "💡"
+goudengids_sector_not_indexed = true
+
+[automobielfabrieken]
+nl_slug = ""
+fr_slug = ""
+display = "Automobielfabrieken"
+emoji = "🚗"
+goudengids_sector_not_indexed = true
+
+[scheepsbouw]
+nl_slug = ""
+fr_slug = ""
+display = "Scheepsbouw"
+emoji = "🚢"
+goudengids_sector_not_indexed = true
+
+[papierfabrieken]
+nl_slug = ""
+fr_slug = ""
+display = "Papierfabrieken"
+emoji = "📄"
+goudengids_sector_not_indexed = true
+
+[glasindustrie]
+nl_slug = ""
+fr_slug = ""
+display = "Glasindustrie"
+emoji = "🪟"
+goudengids_sector_not_indexed = true
+
+[waterzuivering]
+nl_slug = ""
+fr_slug = ""
+display = "Waterzuivering"
+emoji = "💧"
+goudengids_sector_not_indexed = true
+
+[gasdistributie]
+nl_slug = ""
+fr_slug = ""
+display = "Gasdistributie"
+emoji = "🔥"
+goudengids_sector_not_indexed = true
+
+[spoortransport]
+nl_slug = ""
+fr_slug = ""
+display = "Spoortransport"
+emoji = "🚂"
+goudengids_sector_not_indexed = true
+
+[havenactiviteiten]
+nl_slug = ""
+fr_slug = ""
+display = "Havenactiviteiten"
+emoji = "⚓"
+goudengids_sector_not_indexed = true

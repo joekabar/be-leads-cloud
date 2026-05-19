@@ -14,20 +14,21 @@ Streamlit UI for sector × city queries.
 - `src/scraper/db/`               asyncpg pool, repositories, migrations, Pydantic row models
 - `src/scraper/sources/<name>/`   one directory per source, layout: `fetcher.py | parser.py | ingester.py | cli.py | __init__.py`
 - `src/scraper/pipeline/`         `run.py` (entry), `orchestrator.py` (fan-out), `consolidate.py` (placeholder merge), `cli.py`
-- `src/scraper/scoring/`          `confidence.py` (priors + decay), `ranking.py` (LeadScore aggregation)
-- `src/scraper/ui/`               Streamlit app (`app.py`), `data.py` (DB queries), `components/`
+- `src/scraper/scoring/`          `confidence.py` (priors + decay), `ranking.py` (LeadScore aggregation), `hv_prior.py` (NACE→HV probability table), `prospect.py` (ProspectScore)
+- `src/scraper/ui/`               Streamlit app (`app.py`), `data.py` (DB queries), `export.py` (CSV export CLI), `components/`
 
 Async boundary: every I/O function is `async`. Sync code is forbidden in `sources/`, `db/`, `pipeline/`.
 UI may call `asyncio.run` at boundaries.
 
 ## Data model
-Four tables + one materialised view.
+Five tables + one materialised view.
 
 - `run_log` — one row per pipeline run; every `observations` row has a `run_id` FK into it.
 - `observations` — append-only fact store. Each scraped field value is one INSERT; UPDATE is forbidden.
   - Key columns: `kbo_number CHAR(10)`, `field TEXT`, `value JSONB`, `source TEXT`, `confidence NUMERIC(3,2)`, `run_id UUID`.
-  - Allowed field names defined in `src/scraper/db/fields.py`. Financial fields follow `{revenue|profit|employees}_{YYYY}`.
-- `jobs` — `SELECT … FOR UPDATE SKIP LOCKED` worker queue; `JobsRepo.pop_pending()` atomically claims jobs.
+  - Allowed field names defined in `src/scraper/db/fields.py`: `phone | email | website | address | name | founding_date | nace_code | function_holder | activity_summary | website_age | postal_code | status | cross_validation | legal_form`. Financial fields follow `{revenue|profit|employees}_{YYYY}`.
+- `jobs` — `SELECT … FOR UPDATE SKIP LOCKED` worker queue; `JobsRepo.pop_pending()` atomically claims jobs. **Not wired into the pipeline orchestrator** — the orchestrator calls ingesters directly. The table exists for future async-worker use.
+- `prospect_scores` — upsertable (not append-only) commercial scoring table. One row per KBO; populated by `scoring/prospect.py::refresh_prospect_scores(pool)` after each pipeline run. Columns: `hv_probability`, `business_activity`, `contact_quality`, `growth_signal`, `overall_prospect`, `computed_at`. Unlike `observations`, rows are overwritten on conflict.
 - `schema_version` — migration tracker; managed exclusively by `src/scraper/db/migrations/runner.py`.
 - `companies_current` (materialised view) — `DISTINCT ON (kbo_number, field)` ordered by `confidence DESC, observed_at DESC`. Refreshed via `refresh_companies_current()` after each pipeline run. Never refresh from a repo method.
 
@@ -49,12 +50,22 @@ Goudengids placeholders have no NACE observation, so the standard sector filter 
 ### Consolidation pass
 After each pipeline run `pipeline/consolidate.py` fuzzy-matches placeholder KBOs (`9%`) to real KBOs using `rapidfuzz.fuzz.token_set_ratio` (threshold 80, three passes: name+postal → name+city → name_only@90). Matching placeholder observations are **re-emitted** under the real KBO with `confidence × 0.9`. Originals are never deleted.
 
-### Scoring formula (`scoring/ranking.py`)
+### Scoring formula (`scoring/ranking.py`) — LeadScore (data trust)
 `overall = 0.5 × completeness + 0.35 × authority + 0.15 × recency`
 - **completeness**: fraction of `HIGH_VALUE_FIELDS` with at least one observation.
 - **authority**: mean recency-decayed `base_prior(source, field_family)` across populated HVF.
 - **recency**: `1 - mean_days_since / 90`, clamped to [0, 1].
 Source priors live in `scoring/confidence.py::_PRIORS_TABLE`.
+`HIGH_VALUE_FIELDS` in `ranking.py` includes `revenue_2023` and `revenue_2024` — **update these year constants annually**.
+
+### ProspectScore (`scoring/prospect.py`) — commercial fit
+Orthogonal to LeadScore. Answers "how likely is this company to be an HV / heavy-industry buyer?"
+`overall_prospect = 0.45 × hv + 0.20 × activity + 0.20 × contact + 0.15 × growth`
+- **hv_probability**: longest-prefix NACE match against `scoring/hv_prior.py::_HV_PRIORS`. T1 ≥ 0.80 / T2 0.55–0.79 / T3 0.30–0.54 / T4 < 0.30. Unknown prefixes → 0.0 (not 0.5).
+- **business_activity**: 1.0 if active status + financial observation; 0.5 if active only; 0.25 if financial only.
+- **contact_quality**: mean of three binary signals (phone, email, website).
+- **growth_signal**: 0.0 placeholder — populated when growth-signal sources land.
+Call `refresh_prospect_scores(pool)` after `refresh_companies_current()`. Never call from a repo method.
 
 ## Testing rules — TDD IS ENFORCED BY HOOKS
 - Every change to `src/scraper/**` MUST touch `tests/**` in the same turn.
@@ -62,6 +73,8 @@ Source priors live in `scoring/confidence.py::_PRIORS_TABLE`.
 - `uv run pytest --cov=src/scraper --cov-fail-under=85` must pass before Stop.
 - New scrapers require ≥3 golden HTML samples in `tests/golden/<source>/`.
 - Network-hitting tests are marked `@pytest.mark.network` and skipped in CI.
+- `asyncio_mode = "auto"` is set in `pyproject.toml` — `async def` tests run automatically; **do not add `@pytest.mark.asyncio`**.
+- Integration tests (`@pytest.mark.integration`) create a disposable `leads_test_<timestamp>` DB and require a live Postgres instance. Never run them against the dev `leads` DB.
 
 ## Coding conventions
 - Type hints everywhere; `mypy --strict`.
@@ -81,6 +94,7 @@ Source priors live in `scoring/confidence.py::_PRIORS_TABLE`.
 - Concurrent goudengids requests. The host's WAF penalises bursts harder than sustained low rate. Always concurrency 1.
 - Treating search-engine observations as authority. They are evidence signals (confidence 0.50–0.55), never canonical. Never resolve conflicts by trusting a search hit over KBO/NBB/goudengids.
 - NACE codes with dots — KBO Open Data uses dotless codes (`43211`, not `43.21`). `_SECTOR_NACE_PREFIXES` in `orchestrator.py` must match this format.
+- Calling `httpx.AsyncClient` directly from a goudengids fetcher — goudengids uses Playwright/Chromium (see `sources/goudengids/fetcher.py`). The old httpx warmup approach is archived in `sources/goudengids/archive/`.
 
 ## Per-source knowledge
 Skills live under `.claude/skills/<name>/SKILL.md` and load on demand. Don't put per-source detail in this file.
@@ -114,7 +128,9 @@ docker compose up -d pg
 uv run be-leads-migrate   # apply DB migrations
 
 # Daily dev
-uv run pytest -m "not network"                          # full suite, skip live network
+uv run pytest -m "not network and not integration"      # fast unit tests only (no DB)
+uv run pytest -m "not network"                          # full suite (unit + integration), skip live network
+uv run pytest -m integration                            # integration tests only (needs running Postgres)
 uv run pytest tests/unit/ui/test_data.py -v             # single file
 uv run pytest tests/unit/ui/test_data.py::TestFetchResultsForRun::test_empty_run_returns_empty_list -v  # single test
 uv run ruff check . && uv run ruff format --check .
@@ -125,17 +141,27 @@ uv run streamlit run src/scraper/ui/app.py
 uv run be-leads-pipeline --sector elektriciens --city antwerpen --use-fixture
 uv run be-leads-pipeline --sector elektriciens --city antwerpen --fixture-zip KBO_zip/KboOpenData_*.zip
 uv run be-leads-pipeline --sector elektriciens --city antwerpen --skip-kbo-dump --skip-nbb
+
+# Batch pipeline (stage-once + all sectors, ~1.5 h vs ~12 h for full city run)
+uv run be-leads-kbo-stage KBO_zip/KboOpenData_*.zip          # stage ZIP once (idempotent)
+uv run be-leads-kbo-stage KBO_zip/KboOpenData_*.zip --force  # re-stage (deletes old rows first)
+uv run be-leads-pipeline-batch --city antwerpen --all-sectors
+uv run be-leads-pipeline-batch --city antwerpen --sector elektriciens --sector accountants
+uv run be-leads-cleanup-stage --keep 3                       # delete all but 3 most-recent snapshots
 ```
 
 Per-source CLIs (useful for isolated debugging):
 ```
-uv run be-leads-ingest-kbo       # kbo_dump ingester
-uv run be-leads-fetch-kbopub     # kbopub HTML scraper
-uv run be-leads-fetch-nbb        # NBB CBSO financials
-uv run be-leads-discover-goudengids  # goudengids listing
-uv run be-leads-enrich-website   # website enrichment
-uv run be-leads-search-validate  # DuckDuckGo + Brave cross-validation
-uv run be-leads-validate-phone   # phone validation helper
+uv run be-leads-ingest-kbo           # kbo_dump ingester
+uv run be-leads-validate-kbo         # validate a single enterprise number (mod-97 checksum)
+uv run be-leads-fetch-kbopub         # kbopub HTML scraper
+uv run be-leads-fetch-nbb            # NBB CBSO financials
+uv run be-leads-discover-goudengids  # goudengids listing (uses Playwright/Chromium)
+uv run be-leads-enrich-website       # website enrichment
+uv run be-leads-search-validate      # DuckDuckGo + Brave cross-validation
+uv run be-leads-validate-phone       # phone validation helper
+uv run be-leads-export --out results.csv                     # export all KBOs ranked by overall_prospect
+uv run be-leads-export --out results.csv --run-id <uuid>     # restrict to a single pipeline run
 ```
 
 ## Definition of done (every change)
@@ -144,4 +170,4 @@ uv run be-leads-validate-phone   # phone validation helper
 3. Implementation makes them pass.
 4. `ruff check`, `ruff format --check`, `mypy --strict` clean on changed files.
 5. `uv run pytest --cov=src/scraper --cov-fail-under=85` passes.
-6. CHANGELOG entry added.
+6. CHANGELOG entry added (Keep a Changelog format — add under `## [Unreleased]`).

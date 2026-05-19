@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -9,6 +10,7 @@ from typing import TYPE_CHECKING, Literal
 
 import structlog
 from rapidfuzz import fuzz
+from rapidfuzz import process as _rfprocess
 
 from scraper.db.models import Observation
 from scraper.db.repositories.observations import ObservationsRepo
@@ -102,18 +104,33 @@ async def _gather_kbo_infos(pool: asyncpg.Pool, is_placeholder: bool) -> list[_K
 
 def _best_match(
     placeholder: _KboInfo,
-    candidates: list[_KboInfo],
+    reals: list[_KboInfo],
     threshold: float,
+    *,
+    postal_index: dict[str, list[_KboInfo]] | None = None,
+    city_index: dict[str, list[_KboInfo]] | None = None,
+    real_name_norms: list[str] | None = None,
 ) -> ConsolidationMatch | None:
-    """Three-pass matching: name+postal, name+city, name_only."""
+    """Three-pass matching: name+postal, name+city, name_only.
+
+    When postal_index / city_index are supplied (built once before the main loop),
+    Pass 1 and 2 are O(1) bucket lookups rather than O(N) list scans.
+    When real_name_norms is supplied, Pass 3 uses rapidfuzz.process.extractOne
+    (C inner loop, GIL released) instead of a Python for-loop (~10-50x faster).
+    """
     best_score = 0.0
     best_candidate: _KboInfo | None = None
     best_matched_on: Literal["name+postal", "name+city", "name_only"] = "name_only"
 
     # Pass 1: same postal code
-    postal_candidates = [
-        c for c in candidates if c.postal_code == placeholder.postal_code and c.postal_code
-    ]
+    if postal_index is not None:
+        postal_candidates = (
+            postal_index.get(placeholder.postal_code, []) if placeholder.postal_code else []
+        )
+    else:
+        postal_candidates = [
+            c for c in reals if c.postal_code == placeholder.postal_code and c.postal_code
+        ]
     for c in postal_candidates:
         score = fuzz.token_set_ratio(placeholder.name_norm, c.name_norm)
         if score >= threshold and score > best_score:
@@ -130,9 +147,12 @@ def _best_match(
         )
 
     # Pass 2: same city (case-insensitive)
-    city_candidates = [
-        c for c in candidates if c.city and placeholder.city and c.city == placeholder.city
-    ]
+    if city_index is not None:
+        city_candidates = city_index.get(placeholder.city, []) if placeholder.city else []
+    else:
+        city_candidates = [
+            c for c in reals if c.city and placeholder.city and c.city == placeholder.city
+        ]
     for c in city_candidates:
         score = fuzz.token_set_ratio(placeholder.name_norm, c.name_norm)
         if score >= threshold and score > best_score:
@@ -149,22 +169,71 @@ def _best_match(
         )
 
     # Pass 3: name only, stricter threshold (90)
-    for c in candidates:
-        score = fuzz.token_set_ratio(placeholder.name_norm, c.name_norm)
-        if score >= 90.0 and score > best_score:
-            best_score = score
-            best_candidate = c
-            best_matched_on = "name_only"
-
-    if best_candidate is not None:
-        return ConsolidationMatch(
-            placeholder_kbo=placeholder.kbo,
-            real_kbo=best_candidate.kbo,
-            score=best_score,
-            matched_on=best_matched_on,
+    if real_name_norms is not None:
+        result = _rfprocess.extractOne(
+            placeholder.name_norm,
+            real_name_norms,
+            scorer=fuzz.token_set_ratio,
+            score_cutoff=90.0,
         )
+        if result is not None:
+            _matched_norm, score, idx = result
+            return ConsolidationMatch(
+                placeholder_kbo=placeholder.kbo,
+                real_kbo=reals[idx].kbo,
+                score=float(score),
+                matched_on="name_only",
+            )
+    else:
+        for c in reals:
+            score = fuzz.token_set_ratio(placeholder.name_norm, c.name_norm)
+            if score >= 90.0 and score > best_score:
+                best_score = score
+                best_candidate = c
+                best_matched_on = "name_only"
+
+        if best_candidate is not None:
+            return ConsolidationMatch(
+                placeholder_kbo=placeholder.kbo,
+                real_kbo=best_candidate.kbo,
+                score=best_score,
+                matched_on=best_matched_on,
+            )
 
     return None
+
+
+def _run_matching(
+    placeholders: list[_KboInfo],
+    reals: list[_KboInfo],
+    postal_index: dict[str, list[_KboInfo]],
+    city_index: dict[str, list[_KboInfo]],
+    real_name_norms: list[str],
+    threshold: float,
+) -> list[ConsolidationMatch]:
+    """CPU-bound matching loop, suitable for asyncio.to_thread."""
+    matches: list[ConsolidationMatch] = []
+    for p in placeholders:
+        if not p.name_norm:
+            continue
+        m = _best_match(
+            p,
+            reals,
+            threshold,
+            postal_index=postal_index,
+            city_index=city_index,
+            real_name_norms=real_name_norms,
+        )
+        if m:
+            matches.append(m)
+            logger.debug(
+                "consolidation_match",
+                placeholder=p.kbo,
+                real=m.real_kbo,
+                score=m.score,
+                matched_on=m.matched_on,
+            )
+    return matches
 
 
 async def consolidate(
@@ -194,20 +263,26 @@ async def consolidate(
 
     log.info("consolidation_matching", placeholders=len(placeholders), reals=len(reals))
 
-    matches: list[ConsolidationMatch] = []
-    for p in placeholders:
-        if not p.name_norm:
-            continue
-        m = _best_match(p, reals, name_match_threshold)
-        if m:
-            matches.append(m)
-            log.debug(
-                "consolidation_match",
-                placeholder=p.kbo,
-                real=m.real_kbo,
-                score=m.score,
-                matched_on=m.matched_on,
-            )
+    # Pre-build lookup indexes once — O(1) bucket access per placeholder instead of O(N) scans.
+    postal_index: dict[str, list[_KboInfo]] = {}
+    city_index: dict[str, list[_KboInfo]] = {}
+    for r in reals:
+        if r.postal_code:
+            postal_index.setdefault(r.postal_code, []).append(r)
+        if r.city:
+            city_index.setdefault(r.city, []).append(r)
+    real_name_norms = [r.name_norm for r in reals]
+
+    # Run CPU-bound matching in a thread so the event loop stays responsive.
+    matches = await asyncio.to_thread(
+        _run_matching,
+        placeholders,
+        reals,
+        postal_index,
+        city_index,
+        real_name_norms,
+        name_match_threshold,
+    )
 
     # Re-emit placeholder observations under real KBO.
     all_new_obs: list[Observation] = []

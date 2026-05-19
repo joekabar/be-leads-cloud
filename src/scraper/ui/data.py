@@ -270,7 +270,22 @@ async def fetch_results_for_run(
             continue
         result.append(row)
 
-    result.sort(key=lambda r: r["score_overall"], reverse=True)
+    # Bulk-fetch prospect scores and merge — one query for all KBOs at once.
+    result_kbos = [r["kbo_number"] for r in result]
+    if result_kbos:
+        ps_rows = await pool.fetch(
+            "SELECT kbo_number, overall_prospect FROM prospect_scores "
+            "WHERE kbo_number = ANY($1::char(10)[])",
+            result_kbos,
+        )
+        prospect_map = {str(r["kbo_number"]).strip(): float(r["overall_prospect"]) for r in ps_rows}
+    else:
+        prospect_map = {}
+
+    for row in result:
+        row["overall_prospect"] = prospect_map.get(row["kbo_number"], 0.0)
+
+    result.sort(key=lambda r: (r["overall_prospect"], r["score_overall"]), reverse=True)
     return result
 
 
