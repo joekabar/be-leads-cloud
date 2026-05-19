@@ -538,7 +538,9 @@ async def _run_nbb(
         nbb_client = NbbClient(polite_client, config.nbb_subscription_key or "")
         real_kbos = await _get_real_kbos(pool, started_at, kbo_dump_run_id=report.kbo_dump_run_id)
         if real_kbos:
-            nbb_report = await nbb_ingest(real_kbos, pool, nbb_client, skip_recent_hours=0)
+            nbb_report = await nbb_ingest(
+                real_kbos, pool, nbb_client, skip_recent_hours=0, years_back=3
+            )
             report.sources_run.append("nbb_authentic")
             report.observations_inserted_per_source["nbb_authentic"] = (
                 nbb_report.observations_inserted
