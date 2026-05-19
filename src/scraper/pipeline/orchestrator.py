@@ -210,6 +210,7 @@ class PipelineReport:
     placeholders_resolved: int = 0
     companies_in_view: int = 0
     duration_s: float = 0.0
+    kbo_dump_run_id: UUID | None = None  # set by staging path; used by kbopub/nbb to find KBOs
 
 
 def resolve_sector_slugs(input_slug: str) -> tuple[str, str]:
@@ -255,13 +256,28 @@ async def _count_companies_in_view(pool: asyncpg.Pool) -> int:
     return int(row["n"]) if row else 0
 
 
-async def _get_real_kbos(pool: asyncpg.Pool, since: datetime) -> list[str]:
-    """Return non-placeholder KBOs first observed on or after *since* (current pipeline run)."""
-    rows = await pool.fetch(
-        "SELECT DISTINCT kbo_number FROM observations "
-        "WHERE kbo_number NOT LIKE '9%' AND observed_at >= $1",
-        since,
-    )
+async def _get_real_kbos(
+    pool: asyncpg.Pool,
+    since: datetime,
+    kbo_dump_run_id: UUID | None = None,
+) -> list[str]:
+    """Return non-placeholder KBOs from the current pipeline run.
+
+    Uses observed_at for the fixture/ingest_zip path (real-time observations) and
+    run_id for the staging path (observed_at is the snapshot date, not today).
+    """
+    if kbo_dump_run_id is not None:
+        rows = await pool.fetch(
+            "SELECT DISTINCT kbo_number FROM observations "
+            "WHERE kbo_number NOT LIKE '9%' AND run_id = $1",
+            kbo_dump_run_id,
+        )
+    else:
+        rows = await pool.fetch(
+            "SELECT DISTINCT kbo_number FROM observations "
+            "WHERE kbo_number NOT LIKE '9%' AND observed_at >= $1",
+            since,
+        )
     return [str(r["kbo_number"]).strip() for r in rows]
 
 
@@ -385,6 +401,7 @@ async def _run_kbo_dump(
                 city_slug=config.city,
                 notes=f"snapshot={snapshot_date}",
             )
+            report.kbo_dump_run_id = run_id
             n_obs = 0
             if entity_numbers:
                 n_obs = await emit_phase_a(pool, snapshot_date, entity_numbers, run_id, observed_at)
@@ -471,7 +488,7 @@ async def _run_kbopub(
     try:
         from scraper.sources.kbopub_html.ingester import ingest_kbos as kbopub_ingest
 
-        real_kbos = await _get_real_kbos(pool, started_at)
+        real_kbos = await _get_real_kbos(pool, started_at, kbo_dump_run_id=report.kbo_dump_run_id)
         skip_hours = 0
         if not real_kbos:
             nace_prefixes = _SECTOR_NACE_PREFIXES.get(config.sector_slug, [])
@@ -519,7 +536,7 @@ async def _run_nbb(
         from scraper.sources.nbb_authentic.ingester import ingest_kbos as nbb_ingest
 
         nbb_client = NbbClient(polite_client, config.nbb_subscription_key or "")
-        real_kbos = await _get_real_kbos(pool, started_at)
+        real_kbos = await _get_real_kbos(pool, started_at, kbo_dump_run_id=report.kbo_dump_run_id)
         if real_kbos:
             nbb_report = await nbb_ingest(real_kbos, pool, nbb_client, skip_recent_hours=0)
             report.sources_run.append("nbb_authentic")
