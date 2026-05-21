@@ -90,6 +90,9 @@ async def export_csv(
 
     kbos = [str(r["kbo_number"]).strip() for r in kbo_rows]
     if not kbos:
+        if chunk_size > 0:
+            return []
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text("", encoding="utf-8")  # noqa: ASYNC240
         return 0
 
