@@ -74,6 +74,10 @@ class BatchConfig:
     do_nbb: bool = True
     do_website: bool = True
     do_search: bool = True
+    export_dir: Path | None = None
+    export_chunk_size: int = 5000
+    goudengids_skip_recent_hours: int = 720
+    ddg_brave_skip_recent_hours: int = 168
 
 
 @dataclass
@@ -92,6 +96,7 @@ class BatchReport:
     companies_in_view: int = 0
     prospect_scores_computed: int = 0
     duration_s: float = 0.0
+    export_files: list[Path] = field(default_factory=list)
 
 
 def _load_goudengids_entries() -> dict[str, dict[str, object]]:
@@ -441,6 +446,7 @@ async def _run_goudengids_sector(
     pool: asyncpg.Pool,
     polite_client: PoliteClient,
     log: structlog.BoundLogger,
+    skip_recent_hours: int = 0,
 ) -> int:
     """Run goudengids for one sector. Returns observations inserted (0 on skip/failure)."""
     goud_slug = _resolve_goudengids_slug(sector_slug, lang)
@@ -461,7 +467,7 @@ async def _run_goudengids_sector(
             fetcher,
             max_pages=max_pages,
             lang=lang,
-            skip_recent_hours=0,
+            skip_recent_hours=skip_recent_hours,
         )
         log.info(
             "goudengids_sector_done",
@@ -597,6 +603,7 @@ async def run_batch(
                 pool,
                 polite_client,
                 log,
+                skip_recent_hours=config.goudengids_skip_recent_hours,
             )
             report.goudengids_per_sector[sector_slug] = obs_count
             # Collect run_ids for Phase C2 scope.
@@ -734,7 +741,7 @@ async def run_batch(
                     polite_client,
                     brave_client=brave_client,
                     ddg_client=ddg_client,
-                    skip_recent_hours=0,
+                    skip_recent_hours=config.ddg_brave_skip_recent_hours,
                 )
                 report.enrichment_observations["ddg_brave"] = search_report.observations_inserted
                 report.sources_run.append("ddg_brave")
@@ -767,6 +774,23 @@ async def run_batch(
         n = await refresh_prospect_scores(pool)
         report.prospect_scores_computed = n
         log.info("phase_f_finished", kbos=n)
+
+    # ── Phase G — auto CSV export (if export_dir configured) ──────────────────
+    if config.export_dir is not None:
+        from scraper.ui.export import export_csv
+
+        try:
+            export_paths = await export_csv(
+                pool,
+                config.export_dir,
+                chunk_size=config.export_chunk_size,
+            )
+            if isinstance(export_paths, list):
+                report.export_files = export_paths
+            log.info("phase_g_export_done", files=len(report.export_files))
+        except Exception as exc:
+            report.sources_failed["export"] = str(exc)
+            log.error("phase_g_export_failed", error=str(exc))
 
     # ── Finish ─────────────────────────────────────────────────────────────────
     row = await pool.fetchrow("SELECT COUNT(DISTINCT kbo_number) AS n FROM companies_current")

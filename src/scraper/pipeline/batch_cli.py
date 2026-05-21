@@ -8,6 +8,7 @@ import json
 import os
 import sys
 from datetime import date
+from pathlib import Path
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -45,6 +46,33 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skip-nbb", action="store_true")
     p.add_argument("--skip-website", action="store_true")
     p.add_argument("--skip-search", action="store_true")
+    p.add_argument(
+        "--export-dir",
+        default=None,
+        metavar="PATH",
+        help="Directory for post-batch CSV export (5000 rows per file by default).",
+    )
+    p.add_argument(
+        "--export-chunk-size",
+        type=int,
+        default=5000,
+        metavar="N",
+        help="Rows per chunk CSV file (default: 5000). Used with --export-dir.",
+    )
+    p.add_argument(
+        "--goudengids-skip-recent-hours",
+        type=int,
+        default=720,
+        metavar="H",
+        help="Skip goudengids sectors scraped within this many hours (default: 720 = 30 days).",
+    )
+    p.add_argument(
+        "--ddg-brave-skip-recent-hours",
+        type=int,
+        default=168,
+        metavar="H",
+        help="Skip ddg/brave for KBOs validated within this many hours (default: 168 = 7 days).",
+    )
     return p
 
 
@@ -88,7 +116,6 @@ def cli_main() -> None:
 
     async def _run() -> None:
         import json as _json
-        from pathlib import Path
 
         import asyncpg
         import httpx
@@ -133,6 +160,10 @@ def cli_main() -> None:
             do_nbb=not args.skip_nbb,
             do_website=not args.skip_website,
             do_search=not args.skip_search,
+            export_dir=Path(args.export_dir) if args.export_dir else None,
+            export_chunk_size=args.export_chunk_size,
+            goudengids_skip_recent_hours=args.goudengids_skip_recent_hours,
+            ddg_brave_skip_recent_hours=args.ddg_brave_skip_recent_hours,
         )
         try:
             async with httpx.AsyncClient(follow_redirects=True) as http_client:
@@ -154,6 +185,7 @@ def cli_main() -> None:
             "prospect_scores_computed": report.prospect_scores_computed,
             "sources_run": report.sources_run,
             "sources_failed": report.sources_failed,
+            "export_files": [str(p) for p in report.export_files],
             "duration_s": round(report.duration_s, 2),
         }
         print(json.dumps(result, indent=2))

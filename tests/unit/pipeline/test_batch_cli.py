@@ -91,6 +91,52 @@ class TestBuildParser:
         assert args.nbb_key == "NKEY"
 
 
+class TestNewDedupeAndExportArgs:
+    def test_default_goudengids_skip_recent_hours(self) -> None:
+        args = _build_parser().parse_args(["--city", "antwerpen", "--all-sectors"])
+        assert args.goudengids_skip_recent_hours == 720
+
+    def test_custom_goudengids_skip_recent_hours(self) -> None:
+        args = _build_parser().parse_args(
+            ["--city", "antwerpen", "--all-sectors", "--goudengids-skip-recent-hours", "48"]
+        )
+        assert args.goudengids_skip_recent_hours == 48
+
+    def test_default_ddg_brave_skip_recent_hours(self) -> None:
+        args = _build_parser().parse_args(["--city", "antwerpen", "--all-sectors"])
+        assert args.ddg_brave_skip_recent_hours == 168
+
+    def test_custom_ddg_brave_skip_recent_hours(self) -> None:
+        args = _build_parser().parse_args(
+            ["--city", "antwerpen", "--all-sectors", "--ddg-brave-skip-recent-hours", "24"]
+        )
+        assert args.ddg_brave_skip_recent_hours == 24
+
+    def test_export_dir_parsed(self) -> None:
+        from pathlib import Path
+
+        args = _build_parser().parse_args(
+            ["--city", "antwerpen", "--all-sectors", "--export-dir", "/tmp/exports"]
+        )
+        assert args.export_dir == "/tmp/exports"
+        # Verify cli_main converts it to Path correctly.
+        assert Path(args.export_dir) == Path("/tmp/exports")
+
+    def test_no_export_dir_is_none(self) -> None:
+        args = _build_parser().parse_args(["--city", "antwerpen", "--all-sectors"])
+        assert args.export_dir is None
+
+    def test_export_chunk_size_default(self) -> None:
+        args = _build_parser().parse_args(["--city", "antwerpen", "--all-sectors"])
+        assert args.export_chunk_size == 5000
+
+    def test_export_chunk_size_custom(self) -> None:
+        args = _build_parser().parse_args(
+            ["--city", "antwerpen", "--all-sectors", "--export-chunk-size", "1000"]
+        )
+        assert args.export_chunk_size == 1000
+
+
 class TestCliMainErrors:
     def test_no_sectors_exits_2(self) -> None:
         with patch.object(sys, "argv", ["batch", "--city", "gent"]):

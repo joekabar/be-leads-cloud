@@ -21,6 +21,10 @@ class TestBatchConfig:
         assert cfg.do_search is True
         assert cfg.nbb_subscription_key is None
         assert cfg.brave_subscription_key is None
+        assert cfg.export_dir is None
+        assert cfg.export_chunk_size == 5000
+        assert cfg.goudengids_skip_recent_hours == 720
+        assert cfg.ddg_brave_skip_recent_hours == 168
 
     def test_frozen(self) -> None:
         cfg = BatchConfig(city="gent", sectors=["accountants"])
@@ -86,3 +90,4 @@ class TestBatchReport:
         assert r.goudengids_per_sector == {}
         assert r.enrichment_observations == {}
         assert r.duration_s == 0.0
+        assert r.export_files == []
