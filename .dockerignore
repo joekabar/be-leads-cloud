@@ -1,0 +1,50 @@
+# Virtual environments & build artifacts
+.venv/
+*.egg-info/
+.eggs/
+dist/
+build/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Version control & CI
+.git/
+.github/
+
+# Cache directories
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Claude Code / AI tooling
+.claude/
+.planning/
+.playwright-mcp/
+
+# Test & doc assets (not needed in the image)
+tests/
+docs/
+agent_docs/
+
+# Large data files — never bake into image
+KBO_zip/
+data/
+leads/
+exports/
+
+# Infrastructure / deployment scripts (separate concern)
+hetzner/
+
+# Coverage & env files
+.coverage
+.coverage.*
+htmlcov/
+.env
+.env.local
+
+# Screenshots & office documents
+*.png
+*.docx
+*.log
