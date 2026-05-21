@@ -60,12 +60,24 @@ async def export_csv(
     out_path: Path,
     *,
     run_id: UUID | None = None,
-) -> int:
+    chunk_size: int = 0,
+) -> int | list[Path]:
     """Write a ranked CSV of all KBOs in companies_current joined with prospect_scores.
 
     When *run_id* is given, restricts to KBOs observed in that run. Otherwise
-    exports all KBOs currently in the view. Returns the number of rows written.
+    exports all KBOs currently in the view.
+
+    When *chunk_size* is 0 (default), writes a single CSV to *out_path* and returns
+    the row count as ``int``.
+
+    When *chunk_size* > 0, treats *out_path* as a directory, writes
+    ``leads_part_NNNN.csv`` chunk files (1-indexed), and returns a ``list[Path]``
+    of the files written.  Raises ``ValueError`` if *out_path* is an existing
+    regular file.
     """
+    if chunk_size > 0 and out_path.is_file():  # noqa: ASYNC240
+        raise ValueError("--out must be a directory when --chunk-size > 0")
+
     now = datetime.now(tz=UTC)
 
     if run_id is not None:
@@ -179,21 +191,57 @@ async def export_csv(
 
     result.sort(key=lambda r: float(r["overall_prospect"] or "0"), reverse=True)
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=_COLUMNS)
-        writer.writeheader()
-        writer.writerows(result)
+    if chunk_size == 0:
+        # Default: single-file behaviour (backwards compatible).
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with out_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_COLUMNS)
+            writer.writeheader()
+            writer.writerows(result)
+        return len(result)
 
-    return len(result)
+    # Chunked mode: write to a directory.
+    if not result:
+        return []
+
+    out_path.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
+    written: list[Path] = []
+    for i, start in enumerate(range(0, len(result), chunk_size), start=1):
+        chunk = result[start : start + chunk_size]
+        chunk_path = out_path / f"leads_part_{i:04d}.csv"
+        with chunk_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_COLUMNS)
+            writer.writeheader()
+            writer.writerows(chunk)
+        written.append(chunk_path)
+    return written
 
 
 def cli_main() -> None:  # pragma: no cover
+    import sys
+
     parser = argparse.ArgumentParser(description="Export ranked prospect CSV from be-leads DB.")
     parser.add_argument("--run-id", default=None, help="UUID of a specific pipeline run")
-    parser.add_argument("--out", required=True, help="Output CSV path")
+    parser.add_argument(
+        "--out", required=True, help="Output CSV path (or directory when --chunk-size > 0)"
+    )
     parser.add_argument("--database-url", default=None, help="PostgreSQL DSN")
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=0,
+        help="Split output into chunk files of this many rows (0 = single file, default)",
+    )
     args = parser.parse_args()
+
+    chunk_size: int = args.chunk_size
+    out_path = Path(args.out)
+
+    if chunk_size > 0 and out_path.is_file():
+        print(
+            f"Error: --out must be a directory when --chunk-size > 0, but '{args.out}' is a file."
+        )
+        sys.exit(2)
 
     from scraper.lib.config import load_settings
 
@@ -217,8 +265,17 @@ def cli_main() -> None:  # pragma: no cover
         if pool is None:
             raise RuntimeError("asyncpg.create_pool returned None")
         try:
-            n = await export_csv(pool, Path(args.out), run_id=run_id)
-            print(f"Exported {n} rows to {args.out}")
+            result = await export_csv(pool, out_path, run_id=run_id, chunk_size=chunk_size)
+            if isinstance(result, list):
+                total = 0
+                for p in result:
+                    with p.open(encoding="utf-8") as fh:
+                        row_count = sum(1 for _ in fh) - 1  # subtract header
+                    total += row_count
+                    print(str(p))
+                print(f"Exported {total} rows across {len(result)} file(s) to {args.out}")
+            else:
+                print(f"Exported {result} rows to {args.out}")
         finally:
             await pool.close()
 

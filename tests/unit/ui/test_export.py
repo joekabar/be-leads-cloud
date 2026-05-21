@@ -329,6 +329,187 @@ class TestExportCsv:
         assert len(rows) == 1
         assert rows[0]["revenue_2023"] == "1500000.0"
 
+    async def test_chunk_size_zero_writes_single_file(self, tmp_path: Path) -> None:
+        out = tmp_path / "leads.csv"
+
+        from scraper.db.models import Observation
+
+        obs = Observation(
+            kbo_number="9000000001",
+            field="name",
+            value={"text": "Acme"},
+            raw_value=None,
+            source="kbo_dump",
+            source_url=None,
+            observed_at=datetime.now(tz=UTC),
+            confidence=0.95,
+            run_id=uuid4(),
+        )
+
+        with patch("scraper.ui.export._row_to_obs", return_value=obs):
+            pool = self._make_pool(
+                kbos=["9000000001"],
+                obs_rows=[
+                    {
+                        "kbo_number": "9000000001",
+                        "field": "name",
+                        "value": {"text": "Acme"},
+                        "raw_value": None,
+                        "source": "kbo_dump",
+                        "source_url": None,
+                        "observed_at": datetime.now(tz=UTC),
+                        "confidence": 0.95,
+                        "run_id": uuid4(),
+                        "id": 1,
+                    }
+                ],
+                ps_rows=[],
+                fin_rows=[],
+                addr_rows=[],
+            )
+            result = await export_csv(pool, out, chunk_size=0)
+
+        assert isinstance(result, int)
+        assert out.exists()
+        with out.open(encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            assert reader.fieldnames == _COLUMNS
+            rows = list(reader)
+        assert len(rows) == 1
+
+    async def test_chunk_size_writes_multiple_files(self, tmp_path: Path) -> None:
+        from scraper.db.models import Observation
+
+        kbo_list = [f"9{i:09d}" for i in range(5001)]
+
+        mock_obs = Observation(
+            kbo_number=kbo_list[0],
+            field="name",
+            value={"text": "Company"},
+            raw_value=None,
+            source="kbo_dump",
+            source_url=None,
+            observed_at=datetime.now(tz=UTC),
+            confidence=0.9,
+            run_id=uuid4(),
+        )
+
+        obs_rows = [
+            {
+                "kbo_number": k,
+                "field": "name",
+                "value": {"text": f"Company {k}"},
+                "raw_value": None,
+                "source": "kbo_dump",
+                "source_url": None,
+                "observed_at": datetime.now(tz=UTC),
+                "confidence": 0.9,
+                "run_id": uuid4(),
+                "id": i,
+            }
+            for i, k in enumerate(kbo_list)
+        ]
+
+        async def _fetch(sql: str, *args: Any, **kwargs: Any) -> list[Any]:
+            if (
+                "observations WHERE run_id" in sql
+                or "DISTINCT kbo_number FROM companies_current" in sql
+            ):
+                return [{"kbo_number": k} for k in kbo_list]
+            if "FROM observations " in sql and "char(10)" in sql and "revenue_" in sql:
+                return []
+            if "FROM observations " in sql and "char(10)" in sql:
+                return obs_rows
+            if "FROM prospect_scores" in sql:
+                return []
+            if "FROM companies_current" in sql and "address" in sql:
+                return []
+            return []
+
+        pool = MagicMock()
+        pool.fetch = AsyncMock(side_effect=_fetch)
+
+        out_path = tmp_path / "chunks"
+
+        with patch("scraper.ui.export._row_to_obs", return_value=mock_obs):
+            result = await export_csv(pool, out_path, chunk_size=5000)
+
+        assert isinstance(result, list)
+        assert len(result) == 2
+
+        part1 = out_path / "leads_part_0001.csv"
+        part2 = out_path / "leads_part_0002.csv"
+        assert part1 in result
+        assert part2 in result
+
+        with part1.open(encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            assert reader.fieldnames == _COLUMNS
+            rows1 = list(reader)
+        assert len(rows1) == 5000
+
+        with part2.open(encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            assert reader.fieldnames == _COLUMNS
+            rows2 = list(reader)
+        assert len(rows2) == 1
+
+    async def test_chunk_size_creates_output_dir(self, tmp_path: Path) -> None:
+        from scraper.db.models import Observation
+
+        kbo_list = ["9000000001"]
+
+        mock_obs = Observation(
+            kbo_number="9000000001",
+            field="name",
+            value={"text": "Acme"},
+            raw_value=None,
+            source="kbo_dump",
+            source_url=None,
+            observed_at=datetime.now(tz=UTC),
+            confidence=0.9,
+            run_id=uuid4(),
+        )
+
+        with patch("scraper.ui.export._row_to_obs", return_value=mock_obs):
+            pool = self._make_pool(
+                kbos=kbo_list,
+                obs_rows=[
+                    {
+                        "kbo_number": "9000000001",
+                        "field": "name",
+                        "value": {"text": "Acme"},
+                        "raw_value": None,
+                        "source": "kbo_dump",
+                        "source_url": None,
+                        "observed_at": datetime.now(tz=UTC),
+                        "confidence": 0.9,
+                        "run_id": uuid4(),
+                        "id": 1,
+                    }
+                ],
+                ps_rows=[],
+                fin_rows=[],
+                addr_rows=[],
+            )
+            out_path = tmp_path / "new_dir"
+            assert not out_path.exists()
+            result = await export_csv(pool, out_path, chunk_size=1)
+
+        assert out_path.is_dir()
+        assert isinstance(result, list)
+        assert len(result) == 1
+
+    async def test_chunk_size_errors_when_out_is_existing_file(self, tmp_path: Path) -> None:
+        out = tmp_path / "existing.csv"
+        out.write_text("")
+
+        pool = MagicMock()
+        pool.fetch = AsyncMock(return_value=[])
+
+        with pytest.raises(ValueError, match="--out must be a directory"):
+            await export_csv(pool, out, chunk_size=5000)
+
     async def test_kbo_with_no_obs_is_skipped(self, tmp_path: Path) -> None:
         out = tmp_path / "leads.csv"
 
