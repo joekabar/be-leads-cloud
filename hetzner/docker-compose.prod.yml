@@ -1,0 +1,85 @@
+# Production Docker Compose for Hetzner deployment.
+#
+# Prerequisites:
+#   docker build -t be-leads-cloud:latest .   (run from repo root)
+#
+# env_file points to hetzner/.env — this file must exist alongside this
+# compose file. Copy hetzner/.env.example to hetzner/.env and fill in values.
+# NEVER commit hetzner/.env to git.
+#
+# Usage:
+#   cd hetzner
+#   docker compose -f docker-compose.prod.yml up -d pg
+#   docker compose -f docker-compose.prod.yml run --rm migrate
+#   docker compose -f docker-compose.prod.yml run --rm kbo-stage \
+#       be-leads-kbo-stage /kbo_zip/KboOpenData_*.zip
+#   docker compose -f docker-compose.prod.yml run --rm pipeline \
+#       be-leads-pipeline-batch --city antwerpen --all-sectors
+
+services:
+  pg:
+    image: postgres:16.4-alpine
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Port 5432 is NOT exposed to the host — internal network only.
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-leads}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  migrate:
+    image: be-leads-cloud:latest
+    command: be-leads-migrate
+    env_file: .env
+    depends_on:
+      pg:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - internal
+
+  pipeline:
+    # No command: here — invoke via:
+    #   docker compose run --rm pipeline be-leads-pipeline-batch \
+    #       --city antwerpen --sector elektriciens --sector accountants
+    image: be-leads-cloud:latest
+    env_file: .env
+    depends_on:
+      pg:
+        condition: service_healthy
+    restart: "no"
+    volumes:
+      - /opt/be-leads/exports:/data/exports
+      - /opt/be-leads/KBO_zip:/kbo_zip:ro
+      - /opt/be-leads/logs:/var/log/be-leads
+    networks:
+      - internal
+
+  kbo-stage:
+    image: be-leads-cloud:latest
+    env_file: .env
+    depends_on:
+      pg:
+        condition: service_healthy
+    restart: "no"
+    volumes:
+      - /opt/be-leads/KBO_zip:/kbo_zip:ro
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  pgdata:
