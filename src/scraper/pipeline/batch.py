@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Literal
 import structlog
 
 from scraper.db.repositories.runs import RunsRepo
+from scraper.pipeline.city_map import get_postal_codes
 from scraper.pipeline.consolidate import consolidate
 from scraper.pipeline.orchestrator import _SECTOR_NACE_PREFIXES
 from scraper.pipeline.progress import ProgressReporter
@@ -133,17 +134,34 @@ async def get_entity_filter(
     city: str,
     nace_prefixes: list[str],
 ) -> list[str]:
-    """Return entity_numbers matching city + NACE filter from staging tables."""
-    city_rows = await pool.fetch(
-        """
-        SELECT DISTINCT entity_number
-        FROM kbo_stage_address
-        WHERE snapshot_date = $1
-          AND (lower(municipality_nl) = lower($2) OR lower(municipality_fr) = lower($2))
-        """,
-        snapshot_date,
-        city,
-    )
+    """Return entity_numbers matching city + NACE filter from staging tables.
+
+    Uses postal-code lookup when the city slug is in city_map.toml; falls back
+    to municipality name matching for cities not in the map.
+    """
+    postal_codes = get_postal_codes(city)
+    if postal_codes:
+        city_rows = await pool.fetch(
+            """
+            SELECT DISTINCT entity_number
+            FROM kbo_stage_address
+            WHERE snapshot_date = $1
+              AND zipcode = ANY($2::text[])
+            """,
+            snapshot_date,
+            postal_codes,
+        )
+    else:
+        city_rows = await pool.fetch(
+            """
+            SELECT DISTINCT entity_number
+            FROM kbo_stage_address
+            WHERE snapshot_date = $1
+              AND (lower(municipality_nl) = lower($2) OR lower(municipality_fr) = lower($2))
+            """,
+            snapshot_date,
+            city,
+        )
     city_entities = {r["entity_number"] for r in city_rows}
 
     if not city_entities:
