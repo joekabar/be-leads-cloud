@@ -3,7 +3,7 @@
 # Install production Python dependencies and build the project wheel.
 # Uses python:3.12-slim to keep the build environment minimal.
 # =============================================================================
-FROM ghcr.io/astral-sh/uv:latest AS uv-bin
+FROM ghcr.io/astral-sh/uv:0.6.17 AS uv-bin
 
 FROM python:3.12-slim AS builder
 
@@ -17,14 +17,14 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
 # Install production dependencies into /app/.venv (no dev extras, no project yet)
-RUN uv sync --locked --no-dev --no-install-project
+RUN uv sync --locked --no-dev --no-install-project --no-cache
 
 # --- Source layer ---
 COPY src/ ./src/
 
 # Install the project package (no-deps: deps already in venv above)
 # This wires up the [project.scripts] CLI entrypoints.
-RUN uv pip install --no-deps -e .
+RUN uv pip install --no-deps .
 
 # =============================================================================
 # Stage 2 — runtime
@@ -42,19 +42,9 @@ WORKDIR /app
 # Bring the entire built venv + source from the builder stage
 COPY --from=builder /app /app
 
-# --- playwright Python package ---
-# `playwright` lives in [dependency-groups] dev, so --no-dev excluded it.
-# The base image provides Chromium; we only need the Python bindings in our venv.
-RUN /app/.venv/bin/pip install "playwright>=1.59"
-
-# Register Chromium in our venv's playwright install.
-# The base image already has browsers at $PLAYWRIGHT_BROWSERS_PATH; this
-# command links them so our playwright package can find them without a
-# redundant download.
-RUN /app/.venv/bin/playwright install chromium
-
-# --- Non-root user ---
+# --- Non-root user (created before playwright install so browsers land in app's home) ---
 RUN useradd -m -u 1000 app
+RUN chown -R app:app /app
 
 # --- Runtime environment ---
 ENV PATH="/app/.venv/bin:$PATH"
@@ -64,11 +54,20 @@ ENV RUN_ENV=prod
 
 USER app
 
+# --- playwright Python package ---
+# `playwright` lives in [dependency-groups] dev, so --no-dev excluded it.
+# The base image provides Chromium; we only need the Python bindings in our venv.
+# Pin to match the base image version to avoid browser revision mismatch.
+RUN /app/.venv/bin/pip install "playwright==1.59.0"
+
+# Link to Chromium pre-installed in the base image (no download needed).
+RUN /app/.venv/bin/playwright install chromium
+
 # --- Health check ---
 # Validates that CLI entrypoints are wired up and the KBO checksum logic works.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD be-leads-validate-kbo 0434158858 || exit 1
 
 # No CMD / ENTRYPOINT — invoked via `docker compose run` with explicit commands:
-#   docker compose run --rm app be-leads-pipeline-batch --city antwerpen --all-sectors
+#   docker compose run --rm app be-leads-pipeline-batch --city antwerpen --sector elektriciens
 #   docker compose run --rm app be-leads-migrate
