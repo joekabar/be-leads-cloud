@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Hetzner cloud deployment)
+
+- **`Dockerfile`** — multi-stage build (`python:3.12-slim` builder + `playwright/python:v1.59.0-jammy` runtime). Pins `uv==0.6.17`, installs `playwright==1.59.0` into the venv, creates non-root `app` user, healthcheck via `be-leads-validate-kbo`.
+- **`.dockerignore`** — excludes tests, `.venv`, `KBO_zip`, `.env`, `.claude`, screenshot artefacts from build context.
+- **`hetzner/docker-compose.prod.yml`** — production compose with `pg`, `migrate`, `pipeline`, `kbo-stage` services. Postgres on internal network only; host-mounted volumes for exports, KBO ZIPs, and logs.
+- **`hetzner/.env.example`** — environment template with all required variables.
+- **`hetzner/README.md`** — deployment runbook: server sizing (CCX23 16 GB), first-time setup, KBO staging, pipeline execution, monthly refresh, CSV retrieval, backup guidance.
+- **`hetzner/scripts/monthly-stage.sh`** — executable helper to stage a new KBO ZIP and clean old snapshots.
+- **`hetzner/crontab.example`** — optional cron entry for monthly KBO staging (pipeline runs remain manual).
+
+### Added (CSV export)
+
+- **`export_csv` chunk mode** — new `chunk_size: int = 0` parameter. When `> 0`, writes `leads_part_0001.csv`, `leads_part_0002.csv`, … into a directory instead of a single file. Returns `list[Path]`.
+- **`be-leads-export --chunk-size N`** — CLI flag for chunked export (default 0 = single file).
+- **`be-leads-pipeline-batch --export-dir PATH`** — auto-exports after Phase F (prospect scoring) into 5 000-row chunk files. No export when omitted.
+- **`be-leads-pipeline-batch --export-chunk-size N`** — configures chunk size for auto-export (default 5 000).
+
+### Added (city postal-code lookup)
+
+- **`src/scraper/pipeline/city_map.toml`** — lookup table mapping 15 Belgian city slugs to their postal code lists (Antwerpen, Gent, Brussel, Liège, Charleroi, Brugge, Namen, Leuven, Mechelen, Hasselt, Kortrijk, Mons, Aalst, Sint-Niklaas, Ghent alias).
+- **`src/scraper/pipeline/city_map.py`** — `get_postal_codes(city_slug)` lazy-loads the TOML and returns the postal code list or `None` for unknown cities.
+- **`get_entity_filter`** in `batch.py` — now queries `zipcode = ANY(postal_codes)` for known cities; falls back to `municipality_nl/fr` name match for unknown slugs. Ensures `--city antwerpen` captures Borgerhout, Berchem, Deurne, etc.
+
+### Changed (dedup / no double scraping)
+
+- **`goudengids_skip_recent_hours`** default raised from `0` to **`720`** (30 days). Monthly re-runs skip sectors already scraped within the last month. Override with `--goudengids-skip-recent-hours 0`.
+- **`ddg_brave_skip_recent_hours`** default raised from `0` to **`168`** (7 days). Override with `--ddg-brave-skip-recent-hours 0`.
+- **`db/migrations/006_observations_dedup_index.sql`** — `ix_observations_source_kbo_recent` index on `(source, kbo_number, observed_at DESC)` speeds up the `skip_recent_hours` look-ahead query at scale.
+
 ### Performance (pipeline — stage-once KBO batch + epoch-level consolidation/scoring)
 
 Eliminates the biggest sources of wall-time waste: re-parsing the 1.5 GB ZIP per sector,

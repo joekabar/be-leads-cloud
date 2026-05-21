@@ -13,7 +13,7 @@ Streamlit UI for sector × city queries.
 - `src/scraper/lib/`              cross-cutting helpers (http, polite, validators, errors, logging, config)
 - `src/scraper/db/`               asyncpg pool, repositories, migrations, Pydantic row models
 - `src/scraper/sources/<name>/`   one directory per source, layout: `fetcher.py | parser.py | ingester.py | cli.py | __init__.py`
-- `src/scraper/pipeline/`         `run.py` (entry), `orchestrator.py` (fan-out), `consolidate.py` (placeholder merge), `cli.py`
+- `src/scraper/pipeline/`         `run.py` (entry), `orchestrator.py` (single-run fan-out), `batch.py` (multi-sector batch orchestrator), `consolidate.py` (placeholder merge), `progress.py` (live progress reporter), `cli.py` / `batch_cli.py`
 - `src/scraper/scoring/`          `confidence.py` (priors + decay), `ranking.py` (LeadScore aggregation), `hv_prior.py` (NACE→HV probability table), `prospect.py` (ProspectScore)
 - `src/scraper/ui/`               Streamlit app (`app.py`), `data.py` (DB queries), `export.py` (CSV export CLI), `components/`
 
@@ -33,6 +33,19 @@ Five tables + one materialised view.
 - `companies_current` (materialised view) — `DISTINCT ON (kbo_number, field)` ordered by `confidence DESC, observed_at DESC`. Refreshed via `refresh_companies_current()` after each pipeline run. Never refresh from a repo method.
 
 See `agent_docs/data-model.md` for full column specs, JSONB shapes, and the no-UPDATE enforcement layers.
+
+### Pipeline execution order
+**Single-run (`orchestrator.py::run_pipeline`)** — used by `be-leads-pipeline`:
+- Wave A: `kbo_dump` **alone** (CPU-heavy ZIP parse runs first so it doesn't starve Chromium)
+- Wave B: `goudengids` ‖ `kbopub_html` ‖ `nbb_authentic` ‖ `website` ‖ `ddg_brave` (parallel, different hosts)
+- Then: `consolidate` → `refresh_companies_current()` → `refresh_prospect_scores()`
+
+**Batch (`batch.py::run_batch`)** — used by `be-leads-pipeline-batch` (preferred for production; stage-once, ~1.5 h):
+- Phase A: emit from `kbo_stage_*` tables (SQL filter + COPY, no network)
+- Phase B: goudengids per sector, sequential (WAF-bound, concurrency=1)
+- Phase C1: kbopub + nbb + website enrichment, concurrent with Phase B
+- Phase C2: ddg_brave search validation, after Phase B completes
+- Phase D-F: single consolidation → single matview refresh → single prospect scoring pass
 
 ### KBO number conventions
 - Real KBOs: 10 digits, mod-97 checksum, validated via `python-stdnum.be.vat`. KBO Open Data stores NACE codes **without dots** (e.g. `"43211"` not `"43.21"`).
@@ -128,7 +141,8 @@ docker compose up -d pg
 uv run be-leads-migrate   # apply DB migrations
 
 # Daily dev
-uv run pytest -m "not network and not integration"      # fast unit tests only (no DB)
+uv run pytest -x -q -m "not network and not slow and not integration"   # fastest: unit-only, fail-fast
+uv run pytest -m "not network and not integration"      # unit tests only (no DB)
 uv run pytest -m "not network"                          # full suite (unit + integration), skip live network
 uv run pytest -m integration                            # integration tests only (needs running Postgres)
 uv run pytest tests/unit/ui/test_data.py -v             # single file
@@ -142,13 +156,23 @@ uv run be-leads-pipeline --sector elektriciens --city antwerpen --use-fixture
 uv run be-leads-pipeline --sector elektriciens --city antwerpen --fixture-zip KBO_zip/KboOpenData_*.zip
 uv run be-leads-pipeline --sector elektriciens --city antwerpen --skip-kbo-dump --skip-nbb
 
-# Batch pipeline (stage-once + all sectors, ~1.5 h vs ~12 h for full city run)
+# Batch pipeline (stage-once; always supply --city and --sector explicitly)
 uv run be-leads-kbo-stage KBO_zip/KboOpenData_*.zip          # stage ZIP once (idempotent)
 uv run be-leads-kbo-stage KBO_zip/KboOpenData_*.zip --force  # re-stage (deletes old rows first)
 uv run be-leads-pipeline-batch --city antwerpen --all-sectors
 uv run be-leads-pipeline-batch --city antwerpen --sector elektriciens --sector accountants
+# With auto-export (writes leads_part_0001.csv … in the given dir):
+uv run be-leads-pipeline-batch --city antwerpen --all-sectors --export-dir ./exports/2026-06-01
+# Force re-scrape even if already done this month:
+uv run be-leads-pipeline-batch --city antwerpen --all-sectors --goudengids-skip-recent-hours 0
 uv run be-leads-cleanup-stage --keep 3                       # delete all but 3 most-recent snapshots
 ```
+
+Key dedup defaults (prevent monthly re-scraping): `goudengids_skip_recent_hours=720` (30 days),
+`ddg_brave_skip_recent_hours=168` (7 days). City lookup via `pipeline/city_map.toml` — e.g.
+`--city antwerpen` matches all Antwerp postal codes (Borgerhout, Berchem, Deurne, etc.).
+
+For Hetzner Cloud deployment: see `hetzner/README.md`.
 
 Per-source CLIs (useful for isolated debugging):
 ```
@@ -162,6 +186,7 @@ uv run be-leads-search-validate      # DuckDuckGo + Brave cross-validation
 uv run be-leads-validate-phone       # phone validation helper
 uv run be-leads-export --out results.csv                     # export all KBOs ranked by overall_prospect
 uv run be-leads-export --out results.csv --run-id <uuid>     # restrict to a single pipeline run
+uv run be-leads-export --out ./exports/ --chunk-size 5000    # write 5000-row chunk files
 ```
 
 ## Definition of done (every change)
