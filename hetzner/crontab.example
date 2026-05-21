@@ -1,0 +1,9 @@
+# Optional: monthly KBO staging cron (1st of month at 03:00).
+# Adjust the zip path to match the downloaded file name.
+# Copy the relevant line into: crontab -e
+#
+# NOTE: download the new KBO ZIP manually first, then run this or the monthly-stage.sh script.
+# The pipeline itself (be-leads-pipeline-batch) is NOT scheduled automatically — run it manually.
+
+# Stage KBO ZIP on the 1st of each month at 03:00
+# 0 3 1 * * KBO_ZIP_PATH=/opt/be-leads/KBO_zip/KboOpenData_$(date +\%Y\%m).zip /opt/be-leads-cloud/hetzner/scripts/monthly-stage.sh >> /opt/be-leads/logs/monthly-stage.log 2>&1
