@@ -78,9 +78,22 @@ def cli_main() -> None:
                 schema="pg_catalog",
             )
 
-        pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2, init=_init_jsonb)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 30
+        delay = 1.0
+        pool: asyncpg.Pool | None = None
+        last_exc: BaseException = RuntimeError("never connected")
+        while loop.time() < deadline:
+            try:
+                pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2, init=_init_jsonb)
+                break
+            except (OSError, asyncpg.CannotConnectNowError) as exc:
+                last_exc = exc
+                print(f"Postgres not ready ({exc!s}), retrying in {delay:.0f}s…")
+                await asyncio.sleep(delay)
+                delay = min(delay * 1.5, 5.0)
         if pool is None:
-            raise RuntimeError("asyncpg.create_pool returned None")
+            raise RuntimeError(f"Could not connect to Postgres after 30s: {last_exc}") from last_exc
         try:
             new_version = await apply_pending(pool, migrations_dir)
             print(f"Migrations applied. Schema version: {new_version}")
