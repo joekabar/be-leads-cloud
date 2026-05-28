@@ -122,6 +122,41 @@ Add these flags to any pipeline command to bypass the recent-run deduplication w
 
 ---
 
+## Running Unattended (close your laptop)
+
+Use the helper script so the pipeline survives SSH disconnect:
+
+```bash
+# Make executable once
+chmod +x /opt/be-leads-cloud/hetzner/scripts/run-pipeline.sh
+
+# Then run — returns immediately and prints a container id
+/opt/be-leads-cloud/hetzner/scripts/run-pipeline.sh --city antwerpen --all-sectors
+/opt/be-leads-cloud/hetzner/scripts/run-pipeline.sh --city antwerpen --sector elektriciens
+```
+
+The script starts the container detached (managed by Docker, not your terminal) and prints:
+- The container id
+- The exact commands to follow logs, check if it's still running, and verify the exit code
+
+**After closing and reopening your laptop:**
+
+```bash
+# Watch live output (Ctrl+C to stop watching — pipeline keeps running)
+docker logs -f <container-id>
+
+# Check if it finished
+docker inspect -f '{{.State.ExitCode}}' <container-id>
+# 0 = success, anything else = error
+
+# Clean up the stopped container when done
+docker container prune
+```
+
+CSVs appear in `/opt/be-leads/exports/<YYYY-MM-DD>/` once the run completes.
+
+---
+
 ## Retrieving CSV Results
 
 From your laptop:

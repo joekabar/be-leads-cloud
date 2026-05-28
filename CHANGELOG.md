@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (unattended pipeline runs)
+
+- **`hetzner/scripts/run-pipeline.sh`** — wrapper that launches `be-leads-pipeline-batch` detached (`docker compose run -d`) so the run survives SSH disconnect / closing the laptop. Injects a date-stamped `--export-dir` automatically. Prints container id and the exact commands to follow logs and verify completion.
+- **`hetzner/README.md`** — new "Running Unattended" section documenting the script, how to follow logs after reconnecting, and how to clean up stopped containers.
+
 ### Added (Hetzner cloud deployment)
 
 - **`Dockerfile`** — multi-stage build (`python:3.12-slim` builder + `playwright/python:v1.59.0-jammy` runtime). Pins `uv==0.6.17`, installs `playwright==1.59.0` into the venv, creates non-root `app` user, healthcheck via `be-leads-validate-kbo`.
