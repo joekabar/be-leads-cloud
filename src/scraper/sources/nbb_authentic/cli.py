@@ -96,24 +96,15 @@ async def _run(
     years_back: int | None,
 ) -> None:
     from scraper.db.pool import init_pool
+    from scraper.lib.data_paths import PER_HOST_TOML
     from scraper.lib.http.client import get_polite_client
     from scraper.lib.http.limiter import load_from_toml
     from scraper.sources.nbb_authentic.client import NbbClient
     from scraper.sources.nbb_authentic.ingester import ingest_kbos
 
-    # parents[4] == project root (be-leads/): cli.py lives 5 levels deep.
-    per_host_toml = (
-        Path(__file__).parents[4]
-        / ".claude"
-        / "skills"
-        / "polite-scraping"
-        / "references"
-        / "per-host.toml"
-    )
-
     pool = await init_pool(database_url)
     try:
-        limiter = load_from_toml(per_host_toml)
+        limiter = load_from_toml(PER_HOST_TOML)
         async with get_polite_client(limiter) as polite_client:
             nbb_client = NbbClient(
                 polite_client=polite_client,

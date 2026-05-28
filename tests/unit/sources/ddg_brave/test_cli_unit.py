@@ -146,3 +146,90 @@ async def test_run_ddg_engine_passes_none_brave(
 
     assert captured[0]["brave_client"] is None
     assert captured[0]["ddg_client"] is not None
+
+
+class TestCliMain:
+    def test_from_db_calls_asyncio_run(self) -> None:
+        import sys
+        from unittest.mock import patch
+
+        with (
+            patch.object(
+                sys,
+                "argv",
+                ["be-leads-search-validate", "--from-db", "--database-url", "postgresql://x"],
+            ),
+            patch("asyncio.run") as mock_run,
+        ):
+            from scraper.sources.ddg_brave.cli import cli_main
+
+            cli_main()
+        mock_run.assert_called_once()
+
+    def test_inputs_file_calls_asyncio_run(self, tmp_path: Path) -> None:
+        import sys
+        from unittest.mock import patch
+
+        tsv = tmp_path / "i.tsv"
+        tsv.write_text("0439401387\tTest\tAntwerpen\n")
+        with (
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "be-leads-search-validate",
+                    "--inputs",
+                    str(tsv),
+                    "--database-url",
+                    "postgresql://x",
+                ],
+            ),
+            patch("asyncio.run") as mock_run,
+        ):
+            from scraper.sources.ddg_brave.cli import cli_main
+
+            cli_main()
+        mock_run.assert_called_once()
+
+    def test_engine_brave_only(self) -> None:
+        import sys
+        from unittest.mock import patch
+
+        with (
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "be-leads-search-validate",
+                    "--from-db",
+                    "--engine",
+                    "brave",
+                    "--brave-key",
+                    "key",
+                    "--database-url",
+                    "postgresql://x",
+                ],
+            ),
+            patch("asyncio.run") as mock_run,
+        ):
+            from scraper.sources.ddg_brave.cli import cli_main
+
+            cli_main()
+        mock_run.assert_called_once()
+
+    def test_no_db_url_uses_settings(self) -> None:
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        with (
+            patch.object(sys, "argv", ["be-leads-search-validate", "--from-db"]),
+            patch(
+                "scraper.lib.config.load_settings",
+                return_value=MagicMock(database_url="postgresql://s"),
+            ),
+            patch("asyncio.run") as mock_run,
+        ):
+            from scraper.sources.ddg_brave.cli import cli_main
+
+            cli_main()
+        mock_run.assert_called_once()

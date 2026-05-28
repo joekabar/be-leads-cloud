@@ -1,0 +1,88 @@
+# Postcode ranges per Belgian city used as goudengids targets.
+# city slug → display name + list of postal codes.
+# Slugs match the goudengids URL path component (lowercase, ASCII).
+
+[cities.antwerpen]
+display = "Antwerpen"
+postcodes = ["2000", "2018", "2020", "2030", "2040", "2050", "2060"]
+
+[cities.gent]
+display = "Gent"
+postcodes = ["9000", "9030", "9032", "9040", "9050"]
+
+[cities.brussel]
+display = "Brussel"
+postcodes = [
+    "1000",
+    "1020",
+    "1030",
+    "1040",
+    "1050",
+    "1060",
+    "1070",
+    "1080",
+    "1081",
+    "1082",
+    "1083",
+    "1090",
+    "1140",
+    "1150",
+    "1160",
+    "1170",
+    "1180",
+    "1190",
+    "1200",
+    "1210",
+]
+
+[cities.oostende]
+display = "Oostende"
+postcodes = ["8400", "8401"]
+
+[cities.brugge]
+display = "Brugge"
+postcodes = ["8000", "8200", "8310", "8380"]
+
+[cities.leuven]
+display = "Leuven"
+postcodes = ["3000", "3001", "3010", "3012", "3018"]
+
+[cities.hasselt]
+display = "Hasselt"
+postcodes = ["3500", "3501", "3510"]
+
+[cities.mechelen]
+display = "Mechelen"
+postcodes = ["2800"]
+
+[cities.aalst]
+display = "Aalst"
+postcodes = ["9300", "9308", "9320"]
+
+[cities.kortrijk]
+display = "Kortrijk"
+postcodes = ["8500", "8501", "8510", "8511"]
+
+[cities.sint-niklaas]
+display = "Sint-Niklaas"
+postcodes = ["9100", "9111", "9112", "9120"]
+
+[cities.roeselare]
+display = "Roeselare"
+postcodes = ["8800"]
+
+[cities.namen]
+display = "Namen / Namur"
+postcodes = ["5000", "5001", "5002", "5004", "5020"]
+
+[cities.luik]
+display = "Luik / Liège"
+postcodes = ["4000", "4020", "4030", "4031", "4032"]
+
+[cities.charleroi]
+display = "Charleroi"
+postcodes = ["6000", "6001", "6010", "6020", "6030", "6031", "6032", "6040", "6041", "6042"]
+
+[cities.bergen]
+display = "Bergen / Mons"
+postcodes = ["7000", "7011", "7012", "7020", "7021", "7022", "7030"]

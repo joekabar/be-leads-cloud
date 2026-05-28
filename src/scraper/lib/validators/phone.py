@@ -13,14 +13,7 @@ from pydantic import BaseModel, ConfigDict
 
 from scraper.lib.errors import ScraperError
 
-_TSV_PATH = (
-    Path(__file__).parents[4]
-    / ".claude"
-    / "skills"
-    / "belgian-phone-validation"
-    / "references"
-    / "prefixes.tsv"
-)
+_TSV_PATH = Path(__file__).parent / "prefixes.tsv"
 
 
 class PhoneType(StrEnum):

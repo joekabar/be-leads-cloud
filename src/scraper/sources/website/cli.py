@@ -76,18 +76,10 @@ async def _run(
     database_url: str,
 ) -> None:
     from scraper.db.pool import init_pool
+    from scraper.lib.data_paths import PER_HOST_TOML
     from scraper.lib.http.client import get_polite_client
     from scraper.lib.http.limiter import load_from_toml
     from scraper.sources.website.ingester import ingest_kbos
-
-    per_host_toml = (
-        Path(__file__).parents[4]
-        / ".claude"
-        / "skills"
-        / "polite-scraping"
-        / "references"
-        / "per-host.toml"
-    )
 
     pairs: list[tuple[str, str]] = []
 
@@ -122,7 +114,7 @@ async def _run(
             print(json.dumps({"kbos_processed": 0, "observations_inserted": 0}))
             return
 
-        limiter = load_from_toml(per_host_toml)
+        limiter = load_from_toml(PER_HOST_TOML)
         async with get_polite_client(limiter) as polite_client:
             report = await ingest_kbos(
                 pairs,

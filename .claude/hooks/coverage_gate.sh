@@ -12,7 +12,7 @@ CHANGED_PY=$(git diff --name-only HEAD 2>/dev/null | grep '\.py$' || true)
 
 # Run coverage gate
 set +e
-OUTPUT=$(uv run pytest --cov=src/scraper --cov-fail-under=85 -q --tb=no 2>&1)
+OUTPUT=$(uv run pytest --cov=src/scraper --cov-fail-under=85 -q --tb=no -m "not network and not slow and not integration" 2>&1)
 STATUS=$?
 set -e
 

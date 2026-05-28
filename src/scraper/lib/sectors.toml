@@ -1,0 +1,572 @@
+# Goudengids sector slugs — NL (goudengids.be) and FR (pagesdor.be)
+# Use only slugs defined here. Do NOT invent slugs.
+# FR slugs marked "" need verification against pagesdor.be.
+
+[elektriciens]
+nl_slug = "elektriciens"
+fr_slug = "electriciens"
+display = "Elektriciens"
+emoji = "⚡"
+
+[loodgieters]
+nl_slug = "loodgieters"
+fr_slug = "plombiers"
+display = "Loodgieters"
+emoji = "🔧"
+
+[schilders]
+nl_slug = "schilders"
+fr_slug = "peintres"
+display = "Schilders"
+emoji = "🎨"
+
+[metselaars]
+nl_slug = "metselaars"
+fr_slug = "macons"
+display = "Metselaars"
+emoji = "🧱"
+
+[dakdekkers]
+nl_slug = "dakdekkers"
+fr_slug = "couvreurs"
+display = "Dakdekkers"
+emoji = "🏠"
+
+[timmerlieden]
+nl_slug = "timmerlieden"
+fr_slug = "charpentiers"
+display = "Timmerlieden"
+emoji = "🪚"
+
+[schrijnwerkers]
+nl_slug = "schrijnwerkers"
+fr_slug = "menuisiers"
+display = "Schrijnwerkers"
+emoji = "🚪"
+
+[vloerleggers]
+nl_slug = "vloerleggers"
+fr_slug = "poseurs-de-sols"
+display = "Vloerleggers"
+emoji = "🪵"
+
+[glaszetters]
+nl_slug = "glaszetters"
+fr_slug = "vitriers"
+display = "Glaszetters"
+emoji = "🪟"
+
+[tegelzetters]
+nl_slug = "tegelzetters"
+fr_slug = "carreleurs"
+display = "Tegelzetters"
+emoji = "🔲"
+
+[verwarmingsinstallateurs]
+nl_slug = "verwarmingsinstallateurs"
+fr_slug = "chauffagistes"
+display = "Verwarmingsinstallateurs"
+emoji = "🔥"
+
+[airco-installateurs]
+nl_slug = "airco-installateurs"
+fr_slug = "installateurs-climatisation"
+display = "Airco-installateurs"
+emoji = "❄️"
+
+[sanitair]
+nl_slug = "sanitair"
+fr_slug = "sanitaires"
+display = "Sanitair"
+emoji = "🚿"
+
+[isolatiebedrijven]
+nl_slug = "isolatiebedrijven"
+fr_slug = "entreprises-isolation"
+display = "Isolatiebedrijven"
+emoji = "🏗️"
+
+[tuinaanleggers]
+nl_slug = "tuinaanleggers"
+fr_slug = "paysagistes"
+display = "Tuinaanleggers"
+emoji = "🌿"
+
+[tuincentra]
+nl_slug = "tuincentra"
+fr_slug = "jardineries"
+display = "Tuincentra"
+emoji = "🌱"
+
+[architecten]
+nl_slug = "architecten"
+fr_slug = "architectes"
+display = "Architecten"
+emoji = "📐"
+
+[ingenieurs]
+nl_slug = "ingenieurs"
+fr_slug = "ingenieurs"
+display = "Ingenieursbureaus"
+emoji = "⚙️"
+
+[notarissen]
+nl_slug = "notarissen"
+fr_slug = "notaires"
+display = "Notarissen"
+emoji = "📜"
+
+[advocaten]
+nl_slug = "advocaten"
+fr_slug = "avocats"
+display = "Advocaten"
+emoji = "⚖️"
+
+[accountants]
+nl_slug = "accountants"
+fr_slug = "comptables"
+display = "Accountants"
+emoji = "📊"
+
+[belastingconsulenten]
+nl_slug = "belastingconsulenten"
+fr_slug = "conseillers-fiscaux"
+display = "Belastingconsulenten"
+emoji = "💰"
+
+[managementconsulenten]
+nl_slug = "managementconsulenten"
+fr_slug = "consultants-management"
+display = "Managementconsulenten"
+emoji = "📈"
+
+[huisartsen]
+nl_slug = "huisartsen"
+fr_slug = "medecins-generalistes"
+display = "Huisartsen"
+emoji = "👨‍⚕️"
+
+[tandartsen]
+nl_slug = "tandartsen"
+fr_slug = "dentistes"
+display = "Tandartsen"
+emoji = "🦷"
+
+[apothekers]
+nl_slug = "apothekers"
+fr_slug = "pharmacies"
+display = "Apothekers"
+emoji = "💊"
+
+[dierenartsen]
+nl_slug = "dierenartsen"
+fr_slug = "veterinaires"
+display = "Dierenartsen"
+emoji = "🐾"
+
+[kinesitherapeuten]
+nl_slug = "kinesitherapeuten"
+fr_slug = "kinesitherapeutes"
+display = "Kinesitherapeuten"
+emoji = "🤸"
+
+[opticiens]
+nl_slug = "opticiens"
+fr_slug = "opticiens"
+display = "Opticiens"
+emoji = "👓"
+
+[restaurants]
+nl_slug = "restaurants"
+fr_slug = "restaurants"
+display = "Restaurants"
+emoji = "🍽️"
+
+[bakkers]
+nl_slug = "bakkers"
+fr_slug = "boulangeries"
+display = "Bakkers"
+emoji = "🥖"
+
+[slagers]
+nl_slug = "slagers"
+fr_slug = "boucheries"
+display = "Slagers"
+emoji = "🥩"
+
+[traiteurs]
+nl_slug = "traiteurs"
+fr_slug = "traiteurs"
+display = "Traiteurs"
+emoji = "🥗"
+
+[bloemisten]
+nl_slug = "bloemisten"
+fr_slug = "fleuristes"
+display = "Bloemisten"
+emoji = "💐"
+
+[kappers]
+nl_slug = "kappers"
+fr_slug = "coiffeurs"
+display = "Kappers"
+emoji = "✂️"
+
+[schoonheidsspecialisten]
+nl_slug = "schoonheidsspecialisten"
+fr_slug = "estheticiennes"
+display = "Schoonheidsspecialisten"
+emoji = "💅"
+
+[autogarages]
+nl_slug = "autogarages"
+fr_slug = "garages"
+display = "Autogarages"
+emoji = "🔩"
+
+[carrosserieherstellers]
+nl_slug = "carrosserieherstellers"
+fr_slug = "carrosseries"
+display = "Carrosserieherstellers"
+emoji = "🚗"
+
+[autohandelaars]
+nl_slug = "autohandelaars"
+fr_slug = "concessionnaires"
+display = "Autohandelaars"
+emoji = "🚘"
+
+[transportbedrijven]
+nl_slug = "transportbedrijven"
+fr_slug = "entreprises-de-transport"
+display = "Transportbedrijven"
+emoji = "🚛"
+
+[verhuisbedrijven]
+nl_slug = "verhuisbedrijven"
+fr_slug = "demenageurs"
+display = "Verhuisbedrijven"
+emoji = "📦"
+
+[taxidiensten]
+nl_slug = "taxidiensten"
+fr_slug = "taxis"
+display = "Taxidiensten"
+emoji = "🚕"
+
+[drukkerijen]
+nl_slug = "drukkerijen"
+fr_slug = "imprimeries"
+display = "Drukkerijen"
+emoji = "🖨️"
+
+[reclamebureaus]
+nl_slug = "reclamebureaus"
+fr_slug = "agences-publicite"
+display = "Reclamebureaus"
+emoji = "📢"
+
+[fotografen]
+nl_slug = "fotografen"
+fr_slug = "photographes"
+display = "Fotografen"
+emoji = "📷"
+
+[informaticabedrijven]
+nl_slug = "informaticabedrijven"
+fr_slug = "societes-informatique"
+display = "Informaticabedrijven"
+emoji = "💻"
+
+[telecomdiensten]
+nl_slug = "telecomdiensten"
+fr_slug = "telecoms"
+display = "Telecomdiensten"
+emoji = "📡"
+
+[banken]
+nl_slug = "banken"
+fr_slug = "banques"
+display = "Banken"
+emoji = "🏦"
+
+[verzekeringsmaatschappijen]
+nl_slug = "verzekeringsmaatschappijen"
+fr_slug = "assurances"
+display = "Verzekeringsmaatschappijen"
+emoji = "🛡️"
+
+[vastgoedmakelaars]
+nl_slug = "vastgoedmakelaars"
+fr_slug = "agences-immobilieres"
+display = "Vastgoedmakelaars"
+emoji = "🏘️"
+
+[hotels]
+nl_slug = "hotels"
+fr_slug = "hotels"
+display = "Hotels"
+emoji = "🏨"
+
+[campings]
+nl_slug = "campings"
+fr_slug = "campings"
+display = "Campings"
+emoji = "⛺"
+
+[supermarkten]
+nl_slug = "supermarkten"
+fr_slug = "supermarches"
+display = "Supermarkten"
+emoji = "🛒"
+
+[kledingwinkels]
+nl_slug = "kledingwinkels"
+fr_slug = "magasins-vetements"
+display = "Kledingwinkels"
+emoji = "👗"
+
+[schoenenwinkels]
+nl_slug = "schoenenwinkels"
+fr_slug = "magasins-chaussures"
+display = "Schoenenwinkels"
+emoji = "👟"
+
+[boekhandels]
+nl_slug = "boekhandels"
+fr_slug = "librairies"
+display = "Boekhandels"
+emoji = "📚"
+
+[schoonmaakbedrijven]
+nl_slug = "schoonmaakbedrijven"
+fr_slug = "entreprises-nettoyage"
+display = "Schoonmaakbedrijven"
+emoji = "🧹"
+
+[bewakingsdiensten]
+nl_slug = "bewakingsdiensten"
+fr_slug = "services-securite"
+display = "Bewakingsdiensten"
+emoji = "🔒"
+
+[vertalingsbureaus]
+nl_slug = "vertalingsbureaus"
+fr_slug = "bureaux-traduction"
+display = "Vertaalbureaus"
+emoji = "🌐"
+
+[uitzendbureaus]
+nl_slug = "uitzendbureaus"
+fr_slug = "agences-interim"
+display = "Uitzendbureaus"
+emoji = "👥"
+
+[scholen]
+nl_slug = "scholen"
+fr_slug = "ecoles"
+display = "Scholen"
+emoji = "🏫"
+
+[kinderdagverblijven]
+nl_slug = "kinderdagverblijven"
+fr_slug = "creches"
+display = "Kinderdagverblijven"
+emoji = "👶"
+
+[begrafenisondernemingen]
+nl_slug = "begrafenisondernemingen"
+fr_slug = "pompes-funebres"
+display = "Begrafenisondernemingen"
+emoji = "🕯️"
+
+[recyclagebedrijven]
+nl_slug = "recyclagebedrijven"
+fr_slug = "entreprises-recyclage"
+display = "Recyclagebedrijven"
+emoji = "♻️"
+
+[zonnepaneleninstallateurs]
+nl_slug = "zonnepaneleninstallateurs"
+fr_slug = "installateurs-panneaux-solaires"
+display = "Zonnepaneelinstallateurs"
+emoji = "☀️"
+
+[cateringbedrijven]
+nl_slug = "cateringbedrijven"
+fr_slug = "entreprises-catering"
+display = "Cateringbedrijven"
+emoji = "🍱"
+
+[marktzaken]
+nl_slug = "marktzaken"
+fr_slug = "marches"
+display = "Marktkramen"
+emoji = "🛍️"
+
+# ── Industrial / heavy sectors ─────────────────────────────────────────────
+# Slugs that exist on goudengids.be/pagesdor.be.
+# Sectors with no public-directory equivalent have goudengids_sector_not_indexed = true;
+# be-leads-pipeline-batch will log a warning and continue rather than fail.
+
+[bouwbedrijven]
+nl_slug = "aannemers"
+fr_slug = "entrepreneurs-generaux"
+display = "Bouwbedrijven"
+emoji = "🏗️"
+
+[ziekenhuizen]
+nl_slug = "ziekenhuizen"
+fr_slug = "hopitaux"
+display = "Ziekenhuizen"
+emoji = "🏥"
+
+[universiteiten]
+nl_slug = "universiteiten"
+fr_slug = "universites"
+display = "Universiteiten"
+emoji = "🎓"
+
+[logistiekverleners]
+nl_slug = "logistiek"
+fr_slug = "logistique"
+display = "Logistiek"
+emoji = "📦"
+
+[recyclagebedrijven-industrieel]
+nl_slug = "recyclagebedrijven"
+fr_slug = "entreprises-recyclage"
+display = "Recyclagebedrijven (industrieel)"
+emoji = "♻️"
+
+[transportbedrijven-zwaar]
+nl_slug = "vrachttransport"
+fr_slug = "transport-routier"
+display = "Vrachttransport"
+emoji = "🚛"
+
+[machinebouwers]
+nl_slug = "machinebouw"
+fr_slug = "construction-machines"
+display = "Machinebouw"
+emoji = "⚙️"
+
+[metaalverwerkingsbedrijven]
+nl_slug = "metaalbewerking"
+fr_slug = "travail-des-metaux"
+display = "Metaalbewerking"
+emoji = "🔩"
+
+[voedingsindustrie]
+nl_slug = "voedingsindustrie"
+fr_slug = "industrie-alimentaire"
+display = "Voedingsindustrie"
+emoji = "🏭"
+
+# Sectors with no meaningful goudengids.be presence — batch logs warning and skips.
+# Listed here so batch_cli.py can distinguish "unknown slug" from "indexed but empty".
+
+[energieproducenten]
+nl_slug = ""
+fr_slug = ""
+display = "Energieproducenten"
+emoji = "⚡"
+goudengids_sector_not_indexed = true
+
+[chemiebedrijven]
+nl_slug = ""
+fr_slug = ""
+display = "Chemiebedrijven"
+emoji = "🧪"
+goudengids_sector_not_indexed = true
+
+[staalindustrie]
+nl_slug = ""
+fr_slug = ""
+display = "Staalindustrie"
+emoji = "🏭"
+goudengids_sector_not_indexed = true
+
+[farmaceutische-bedrijven]
+nl_slug = ""
+fr_slug = ""
+display = "Farmaceutische bedrijven"
+emoji = "💊"
+goudengids_sector_not_indexed = true
+
+[petroleumraffinaderijen]
+nl_slug = ""
+fr_slug = ""
+display = "Petroleumraffinaderijen"
+emoji = "🛢️"
+goudengids_sector_not_indexed = true
+
+[datacenters]
+nl_slug = ""
+fr_slug = ""
+display = "Datacenters"
+emoji = "🖥️"
+goudengids_sector_not_indexed = true
+
+[elektronica-fabrieken]
+nl_slug = ""
+fr_slug = ""
+display = "Elektronica-fabrieken"
+emoji = "💡"
+goudengids_sector_not_indexed = true
+
+[automobielfabrieken]
+nl_slug = ""
+fr_slug = ""
+display = "Automobielfabrieken"
+emoji = "🚗"
+goudengids_sector_not_indexed = true
+
+[scheepsbouw]
+nl_slug = ""
+fr_slug = ""
+display = "Scheepsbouw"
+emoji = "🚢"
+goudengids_sector_not_indexed = true
+
+[papierfabrieken]
+nl_slug = ""
+fr_slug = ""
+display = "Papierfabrieken"
+emoji = "📄"
+goudengids_sector_not_indexed = true
+
+[glasindustrie]
+nl_slug = ""
+fr_slug = ""
+display = "Glasindustrie"
+emoji = "🪟"
+goudengids_sector_not_indexed = true
+
+[waterzuivering]
+nl_slug = ""
+fr_slug = ""
+display = "Waterzuivering"
+emoji = "💧"
+goudengids_sector_not_indexed = true
+
+[gasdistributie]
+nl_slug = ""
+fr_slug = ""
+display = "Gasdistributie"
+emoji = "🔥"
+goudengids_sector_not_indexed = true
+
+[spoortransport]
+nl_slug = ""
+fr_slug = ""
+display = "Spoortransport"
+emoji = "🚂"
+goudengids_sector_not_indexed = true
+
+[havenactiviteiten]
+nl_slug = ""
+fr_slug = ""
+display = "Havenactiviteiten"
+emoji = "⚓"
+goudengids_sector_not_indexed = true

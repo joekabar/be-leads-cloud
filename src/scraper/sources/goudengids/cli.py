@@ -6,7 +6,6 @@ import argparse
 import asyncio
 import json
 import sys
-from pathlib import Path
 
 
 def cli_main() -> None:
@@ -82,23 +81,16 @@ async def _run(
     database_url: str,
 ) -> None:
     from scraper.db.pool import init_pool
+    from scraper.lib.data_paths import PER_HOST_TOML
     from scraper.lib.http.limiter import load_from_toml
     from scraper.sources.goudengids.fetcher import BrowserListingFetcher
     from scraper.sources.goudengids.ingester import ingest_sector_city
 
-    per_host_toml = (
-        Path(__file__).parents[4]
-        / ".claude"
-        / "skills"
-        / "polite-scraping"
-        / "references"
-        / "per-host.toml"
-    )
     domain = "pagesdor.be" if lang == "fr" else "goudengids.be"
 
     pool = await init_pool(database_url)
     try:
-        limiter = load_from_toml(per_host_toml)
+        limiter = load_from_toml(PER_HOST_TOML)
         fetcher = BrowserListingFetcher(limiter, domain=domain)
         report = await ingest_sector_city(
             sector_slug=sector_slug,

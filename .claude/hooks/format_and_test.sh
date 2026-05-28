@@ -13,7 +13,7 @@ uv run ruff format "$FILE" 2>/dev/null || true
 uv run ruff check --fix "$FILE" 2>/dev/null || true
 
 # Run tests
-if ! uv run pytest -x -q --no-header tests/ 2>&1; then
+if ! uv run python -m pytest -x -q --no-header -m "not network and not slow and not integration" tests/ 2>&1; then
   echo "Tests failed after editing $FILE" >&2
   exit 2
 fi

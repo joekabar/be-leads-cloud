@@ -2,23 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import httpx
 
 from scraper.db.pool import init_pool
+from scraper.lib.data_paths import PER_HOST_TOML
 from scraper.lib.http.client import PoliteClient
 from scraper.lib.http.limiter import load_from_toml
 from scraper.pipeline.orchestrator import PipelineConfig, PipelineReport, run_pipeline
-
-_PER_HOST_TOML = (
-    Path(__file__).parents[3]
-    / ".claude"
-    / "skills"
-    / "polite-scraping"
-    / "references"
-    / "per-host.toml"
-)
 
 
 async def run(config: PipelineConfig) -> PipelineReport:
@@ -31,7 +21,7 @@ async def run(config: PipelineConfig) -> PipelineReport:
         database_url = settings.database_url
 
     pool = await init_pool(database_url)
-    limiter = load_from_toml(_PER_HOST_TOML)
+    limiter = load_from_toml(PER_HOST_TOML)
 
     try:
         async with httpx.AsyncClient(follow_redirects=True) as http_client:

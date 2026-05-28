@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Literal
 
 import structlog
 
+from scraper.lib.data_paths import SECTORS_TOML as _SECTORS_TOML
 from scraper.pipeline.consolidate import consolidate
 
 if TYPE_CHECKING:
@@ -26,14 +27,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
-_SECTORS_TOML = (
-    Path(__file__).parents[3]
-    / ".claude"
-    / "skills"
-    / "goudengids-listing"
-    / "references"
-    / "sectors.toml"
-)
 
 # Mapping from NL sector slug → NACE prefix(es) for kbo_dump filtering.
 # KBO Open Data stores NACE codes without dots (e.g. "43211", not "43.21").

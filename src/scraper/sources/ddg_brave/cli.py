@@ -94,20 +94,12 @@ async def _run(
 ) -> None:
 
     from scraper.db.pool import init_pool
+    from scraper.lib.data_paths import PER_HOST_TOML
     from scraper.lib.http.client import get_polite_client
     from scraper.lib.http.limiter import load_from_toml
     from scraper.sources.ddg_brave.brave_client import BraveClient
     from scraper.sources.ddg_brave.ddg_client import DdgClient
     from scraper.sources.ddg_brave.ingester import validate_companies
-
-    per_host_toml = (
-        Path(__file__).parents[4]
-        / ".claude"
-        / "skills"
-        / "polite-scraping"
-        / "references"
-        / "per-host.toml"
-    )
 
     inputs: list[tuple[str, str, str]] = []
 
@@ -147,7 +139,7 @@ async def _run(
             print(json.dumps({"queries_processed": 0, "observations_inserted": 0}))
             return
 
-        limiter = load_from_toml(per_host_toml)
+        limiter = load_from_toml(PER_HOST_TOML)
 
         use_brave = engine in ("brave", "auto") and brave_key is not None
         use_ddg = engine in ("ddg", "auto")

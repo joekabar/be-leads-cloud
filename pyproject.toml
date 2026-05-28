@@ -98,6 +98,7 @@ ignore_missing_imports = true
 asyncio_mode = "auto"
 addopts = ["--import-mode=importlib", "-ra"]
 testpaths = ["tests"]
+pythonpath = ["src"]
 markers = [
     "network: tests that hit real third-party hosts",
     "slow: long-running tests",

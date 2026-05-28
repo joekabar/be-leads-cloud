@@ -7,23 +7,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-_SECTORS_TOML = (
-    Path(__file__).parents[4]
-    / ".claude"
-    / "skills"
-    / "goudengids-listing"
-    / "references"
-    / "sectors.toml"
-)
-
-_POSTCODES_TOML = (
-    Path(__file__).parents[4]
-    / ".claude"
-    / "skills"
-    / "goudengids-listing"
-    / "references"
-    / "postcodes.toml"
-)
+from scraper.lib.data_paths import POSTCODES_TOML as _POSTCODES_TOML
+from scraper.lib.data_paths import SECTORS_TOML as _SECTORS_TOML
 
 _KBO_ZIP_DIR = Path(__file__).parents[4] / "KBO_zip"
 _KBO_ZIP_RE = re.compile(

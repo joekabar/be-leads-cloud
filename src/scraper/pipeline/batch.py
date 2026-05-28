@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Literal
 import structlog
 
 from scraper.db.repositories.runs import RunsRepo
+from scraper.lib.data_paths import SECTORS_TOML as _SECTORS_TOML
 from scraper.pipeline.city_map import get_postal_codes
 from scraper.pipeline.consolidate import consolidate
 from scraper.pipeline.orchestrator import _SECTOR_NACE_PREFIXES
@@ -48,14 +49,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
-_SECTORS_TOML = (
-    Path(__file__).parents[3]
-    / ".claude"
-    / "skills"
-    / "goudengids-listing"
-    / "references"
-    / "sectors.toml"
-)
 
 
 @dataclass(frozen=True, slots=True)

@@ -120,18 +120,10 @@ def cli_main() -> None:
         import asyncpg
         import httpx
 
+        from scraper.lib.data_paths import PER_HOST_TOML
         from scraper.lib.http.client import PoliteClient
         from scraper.lib.http.limiter import load_from_toml
         from scraper.pipeline.batch import BatchConfig, run_batch
-
-        _per_host_toml = (
-            Path(__file__).parents[3]
-            / ".claude"
-            / "skills"
-            / "polite-scraping"
-            / "references"
-            / "per-host.toml"
-        )
 
         async def _init_jsonb(conn: asyncpg.Connection) -> None:
             await conn.set_type_codec(
@@ -145,7 +137,7 @@ def cli_main() -> None:
         if pool is None:
             raise RuntimeError("asyncpg.create_pool returned None")
 
-        limiter = load_from_toml(_per_host_toml)
+        limiter = load_from_toml(PER_HOST_TOML)
         config = BatchConfig(
             city=args.city,
             sectors=sectors,

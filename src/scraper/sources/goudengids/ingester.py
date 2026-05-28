@@ -6,7 +6,6 @@ import time
 import tomllib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import structlog
@@ -14,6 +13,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from scraper.db.repositories.observations import ObservationsRepo
 from scraper.db.repositories.runs import RunsRepo
+from scraper.lib.data_paths import SECTORS_TOML as _SECTORS_TOML
 from scraper.lib.errors import BlockedError
 from scraper.sources.goudengids.parser import parse_listing_page
 from scraper.sources.goudengids.transformer import card_to_observations, make_placeholder_kbo
@@ -26,14 +26,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
-_SECTORS_TOML = (
-    Path(__file__).parents[4]
-    / ".claude"
-    / "skills"
-    / "goudengids-listing"
-    / "references"
-    / "sectors.toml"
-)
+
 _BATCH_SIZE = 200
 
 
