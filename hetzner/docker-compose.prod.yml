@@ -58,6 +58,7 @@ services:
       pg:
         condition: service_healthy
     restart: "no"
+    shm_size: 1gb
     volumes:
       - /opt/be-leads/exports:/data/exports
       - /opt/be-leads/KBO_zip:/kbo_zip:ro
