@@ -109,7 +109,7 @@ class BrowserListingFetcher:
         self._context = None
 
     async def _warmup(self) -> None:
-        """Navigate to the domain homepage once to establish Imperva session cookies."""
+        """Navigate to the domain homepage to establish Imperva session cookies and accept cookies."""
         if self._context is None:
             raise RuntimeError("BrowserListingFetcher must be used as an async context manager")
         page = await self._context.new_page()
@@ -119,6 +119,16 @@ class BrowserListingFetcher:
                 wait_until="load",
                 timeout=30_000,
             )
+            # Accept cookie consent if present — Imperva may not serve results without it.
+            with contextlib.suppress(PlaywrightTimeoutError, TimeoutError):
+                btn = await page.wait_for_selector(
+                    "button:has-text('Alles accepteren'), button:has-text('Tout accepter')",
+                    timeout=8_000,
+                )
+                if btn:
+                    await btn.click()
+                    await asyncio.sleep(1.0)
+                    logger.debug("goudengids_cookie_consent_accepted", domain=self._domain)
         except (PlaywrightTimeoutError, TimeoutError):
             logger.warning("goudengids_warmup_timeout", domain=self._domain)
         finally:
@@ -168,6 +178,7 @@ class BrowserListingFetcher:
             logger.error("goudengids_imperva_block", url=url)
             raise BlockedError(403, url, "Imperva block detected in page HTML")
 
+        logger.debug("goudengids_page_html_sample", url=url, sample=html[:800])
         return html
 
     async def fetch_page(
