@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import urllib.parse
 from typing import TYPE_CHECKING, Any
@@ -67,13 +68,16 @@ class PoliteClient:
 
         async with self._limiter.slot(host):
             await self._limiter.acquire(host)
-            return await request_with_retry(
-                self._inner,
-                method,
-                url,
-                timeout=cfg.timeout_s,
-                **kwargs,
-            )
+            # Hard ceiling: covers 5 retries × (per-request timeout + max backoff).
+            # Guards against half-open TCP connections where httpx's timeout never fires.
+            async with asyncio.timeout(cfg.timeout_s * 12):
+                return await request_with_retry(
+                    self._inner,
+                    method,
+                    url,
+                    timeout=cfg.timeout_s,
+                    **kwargs,
+                )
 
     @property
     def limiter(self) -> HostLimiter:
