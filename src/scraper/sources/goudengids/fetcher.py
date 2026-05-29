@@ -128,7 +128,7 @@ class BrowserListingFetcher:
                 if btn:
                     await btn.click()
                     await asyncio.sleep(1.0)
-                    logger.debug("goudengids_cookie_consent_accepted", domain=self._domain)
+                    logger.warning("goudengids_cookie_consent_accepted", domain=self._domain)
         except (PlaywrightTimeoutError, TimeoutError):
             logger.warning("goudengids_warmup_timeout", domain=self._domain)
         finally:
@@ -178,7 +178,7 @@ class BrowserListingFetcher:
             logger.error("goudengids_imperva_block", url=url)
             raise BlockedError(403, url, "Imperva block detected in page HTML")
 
-        logger.debug("goudengids_page_html_sample", url=url, sample=html[:800])
+        logger.warning("goudengids_page_html_sample", url=url, sample=html[:800])
         return html
 
     async def fetch_page(
