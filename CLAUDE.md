@@ -10,12 +10,12 @@ DuckDuckGo + Brave (cross-validation). Output: provenance-tracked Postgres datab
 Streamlit UI for sector × city queries.
 
 ## Architecture map
-- `src/scraper/lib/`              cross-cutting helpers (http, polite, validators, errors, logging, config)
-- `src/scraper/db/`               asyncpg pool, repositories, migrations, Pydantic row models
+- `src/scraper/lib/`              cross-cutting helpers (http, polite, validators, errors, logging, config); `data_paths.py` resolves bundled TOML files (`per-host.toml`, `sectors.toml`, `postcodes.toml`) relative to the installed package
+- `src/scraper/db/`               asyncpg pool, repositories, migrations, Pydantic row models; `fields.py` (ALLOWED_FIELDS + financial-field regex); `sources.py` (ALLOWED_SOURCES registry — validate before inserting any `source` column value)
 - `src/scraper/sources/<name>/`   one directory per source, layout: `fetcher.py | parser.py | ingester.py | cli.py | __init__.py`
-- `src/scraper/pipeline/`         `run.py` (entry), `orchestrator.py` (single-run fan-out), `batch.py` (multi-sector batch orchestrator), `consolidate.py` (placeholder merge), `progress.py` (live progress reporter), `cli.py` / `batch_cli.py`
+- `src/scraper/pipeline/`         `run.py` (entry), `orchestrator.py` (single-run fan-out), `batch.py` (multi-sector batch orchestrator), `consolidate.py` (placeholder merge), `progress.py` (live progress reporter), `cli.py` / `batch_cli.py`; city slug→postal-code lookup in `city_map.py` (reads `city_map.toml` next to it)
 - `src/scraper/scoring/`          `confidence.py` (priors + decay), `ranking.py` (LeadScore aggregation), `hv_prior.py` (NACE→HV probability table), `prospect.py` (ProspectScore)
-- `src/scraper/ui/`               Streamlit app (`app.py`), `data.py` (DB queries), `export.py` (CSV export CLI), `components/`
+- `src/scraper/ui/`               Streamlit app (`app.py`), `data.py` (main DB queries), `export.py` (CSV export CLI), `components/` (reusable widgets), `queries/` (page-specific DB queries, e.g. `snapshots.py` for KBO staging data), `pages/` (multi-page Streamlit pages)
 
 Async boundary: every I/O function is `async`. Sync code is forbidden in `sources/`, `db/`, `pipeline/`.
 UI may call `asyncio.run` at boundaries.
@@ -128,7 +128,7 @@ Default 0.5 req/s per host, exponential backoff with jitter on 429/503. Honour R
 ## Environment variables
 | Variable | Used by | Notes |
 |---|---|---|
-| `DATABASE_URL` | `lib/config.py::load_settings()`, pipeline CLI | Full R/W Postgres URL |
+| `DATABASE_URL` | `lib/config.py::load_settings()`, pipeline CLI | Full R/W Postgres URL. Local dev (from `docker compose up -d pg`): `postgresql://leads:leads@localhost:5432/leads` |
 | `LEADS_DB_RO_URL` | `.mcp.json` Postgres MCP server | Read-only role for Claude Code queries |
 | `BRAVE_SEARCH_API_KEY` | `ddg_brave/brave_client.py`, pipeline CLI `--brave-key` | Optional |
 | `NBB_CBSO_API_KEY` | `nbb_authentic/client.py`, pipeline CLI `--nbb-key` | Optional |

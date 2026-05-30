@@ -157,6 +157,60 @@ CSVs appear in `/opt/be-leads/exports/<YYYY-MM-DD>/` once the run completes.
 
 ---
 
+## Running the UI on the Server (browser control panel)
+
+A long-running Streamlit `ui` service replaces most day-to-day bash. From it you can
+stage KBO ZIPs, trigger batch runs (**Run Batch Pipeline** page), monitor **Live
+Progress**, run the new-leads diff, and download CSVs.
+
+It is published on the server **loopback only** (`127.0.0.1:8501`) — never exposed to
+the internet. Reach it from your laptop through an SSH tunnel.
+
+```bash
+# On the server — start (and keep) the UI running
+cd /opt/be-leads-cloud/hetzner
+docker compose -f docker-compose.prod.yml up -d ui
+```
+
+```powershell
+# On your laptop — open the tunnel, then browse http://localhost:8501
+./hetzner/scripts/tunnel-ui.ps1 -Server root@YOUR_HETZNER_IP
+```
+
+The UI talks to Postgres over the internal Docker network (`pg:5432`), so no DB
+password is needed in the browser. Trigger a batch run with **Goudengids OFF** (the
+server IP is blocked — see below); watch it advance on the Live Progress tab.
+
+> A batch run started from the server UI executes inside the `ui` container. Leave the
+> container running until it finishes; if it restarts mid-run the job stops (progress is
+> recorded in the DB, so you'll see where it halted).
+
+---
+
+## Running Goudengids Locally (Imperva workaround)
+
+Goudengids/Pagesdor sit behind Imperva, which blocks the Hetzner **datacenter IP**
+(the scraper receives an `_Incapsula_Resource` challenge page). Your laptop's
+**residential IP** is not blocked. So run *only* goudengids from your laptop, writing
+into the same remote DB; consolidation then links the goudengids placeholders to the
+real KBOs your server batch already loaded.
+
+```powershell
+# 1. Open the DB tunnel (leave this window open)
+./hetzner/scripts/tunnel-db.ps1 -Server root@YOUR_HETZNER_IP
+
+# 2. In a second window, launch the local UI against the remote DB
+$env:LEADS_PG_PASSWORD = "<the POSTGRES_PASSWORD from hetzner/.env>"
+./hetzner/scripts/run-ui-local.ps1
+```
+
+In the UI sidebar: **deselect every source except Goudengids** (optionally keep
+Company websites), pick the sector(s) + city, and click **Run pipeline**. The
+single-run consolidation pass matches the new `9%` placeholders against the real KBOs
+in the remote DB and refreshes the materialised view + prospect scores.
+
+---
+
 ## Retrieving CSV Results
 
 From your laptop:
@@ -164,6 +218,8 @@ From your laptop:
 ```bash
 scp -r user@YOUR_HETZNER_IP:/opt/be-leads/exports/YYYY-MM-DD/ ./
 ```
+
+Or use the UI's **New Leads** / results tabs and the **Download CSV** buttons — no SSH needed.
 
 ---
 

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (UI-first operation: server + local goudengids)
+
+- **`src/scraper/ui/pages/run_pipeline.py`** — new Streamlit page to trigger the production **batch** pipeline from the browser (city × sectors, per-source toggles, dedup windows, optional export dir). Runs `run_batch` in a daemon thread; progress shows on the existing KBO Data → Live Progress tab.
+- **`src/scraper/ui/run_config.py`** — `build_batch_config(...)`: pure, Streamlit-free mapping of UI inputs → `BatchConfig`, with sector validation against `_SECTOR_NACE_PREFIXES` (unknown slug / empty city raise `ValueError`).
+- **`src/scraper/ui/batch_runner.py`** — `run_batch_job(dsn, config)`: wires an asyncpg pool + `PoliteClient` around `run_batch` (mirrors `batch_cli._run`) for launch from the UI.
+- **`src/scraper/ui/background.py`** — shared `start_async_job` / `poll_job` helpers (daemon thread + result queue) for long-running async work in Streamlit, extracted from the staging pattern in `pages/kbo_data.py`.
+- **`hetzner/docker-compose.prod.yml`** — new long-running `ui` service (Streamlit, `restart: unless-stopped`) published on the server loopback (`127.0.0.1:8501`); KBO ZIP volume mounted at `/app/KBO_zip` so the staging tab finds them. Postgres now also published on the server loopback (`127.0.0.1:5432`) so a laptop can reach it via SSH tunnel.
+- **`hetzner/scripts/tunnel-db.ps1`, `tunnel-ui.ps1`, `run-ui-local.ps1`** — laptop-side PowerShell helpers: open SSH tunnels to the remote DB / UI, and launch the local UI pointed at the remote DB.
+- **`hetzner/README.md`** — new sections "Running the UI on the Server" and "Running Goudengids Locally (Imperva workaround)".
+
+### Fixed (goudengids)
+
+- **`_BLOCKED_PHRASES`** now includes `_incapsula_resource`, so Imperva/Incapsula challenge pages are detected as blocks (the datacenter IP receives these instead of listings).
+
 ### Added (unattended pipeline runs)
 
 - **`hetzner/scripts/run-pipeline.sh`** — wrapper that launches `be-leads-pipeline-batch` detached (`docker compose run -d`) so the run survives SSH disconnect / closing the laptop. Injects a date-stamped `--export-dir` automatically. Prints container id and the exact commands to follow logs and verify completion.

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 _LISTING_SELECTOR = "li[data-small-result]"
-_BLOCKED_PHRASES = ("pardon our interruption", "imperva")
+_BLOCKED_PHRASES = ("pardon our interruption", "imperva", "_incapsula_resource")
 
 
 @dataclass(frozen=True, slots=True)
