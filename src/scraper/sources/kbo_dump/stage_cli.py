@@ -47,7 +47,8 @@ def cli_main() -> None:
                 schema="pg_catalog",
             )
 
-        pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5, init=_init_jsonb)
+        # Headroom for the 4 table COPYs + N concurrent activity-shard COPYs.
+        pool = await asyncpg.create_pool(dsn, min_size=1, max_size=12, init=_init_jsonb)
         if pool is None:
             raise RuntimeError("asyncpg.create_pool returned None")
         try:

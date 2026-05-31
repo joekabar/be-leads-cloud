@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from datetime import date
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from scraper.sources.kbo_dump.staging import (
     StagingReport,
-    _check_drift,
     _pg_text_escape,
     cleanup_old_snapshots,
     list_staged_snapshots,
@@ -72,38 +71,6 @@ class TestStagingReport:
         assert r.rows_denomination == 50
         assert r.rows_contact == 30
         assert r.rows_activity == 120
-
-
-class TestCheckDrift:
-    def test_no_unknown_cols_no_warning(self) -> None:
-        from scraper.sources.kbo_dump.staging import _EXPECTED_ENTERPRISE_COLS
-
-        with patch("scraper.sources.kbo_dump.staging.logger") as mock_log:
-            _check_drift(
-                "enterprise.csv", set(_EXPECTED_ENTERPRISE_COLS), _EXPECTED_ENTERPRISE_COLS
-            )
-            mock_log.warning.assert_not_called()
-
-    def test_unknown_col_logs_warning(self) -> None:
-        from scraper.sources.kbo_dump.staging import _EXPECTED_ENTERPRISE_COLS
-
-        with patch("scraper.sources.kbo_dump.staging.logger") as mock_log:
-            _check_drift(
-                "enterprise.csv",
-                set(_EXPECTED_ENTERPRISE_COLS) | {"NewFutureColumn"},
-                _EXPECTED_ENTERPRISE_COLS,
-            )
-            mock_log.warning.assert_called_once()
-            call_kwargs = mock_log.warning.call_args
-            assert "kbo_schema_drift_detected" in call_kwargs.args
-            assert "NewFutureColumn" in call_kwargs.kwargs.get("new_columns", [])
-
-    def test_empty_actual_cols_no_warning(self) -> None:
-        from scraper.sources.kbo_dump.staging import _EXPECTED_ENTERPRISE_COLS
-
-        with patch("scraper.sources.kbo_dump.staging.logger") as mock_log:
-            _check_drift("enterprise.csv", set(), _EXPECTED_ENTERPRISE_COLS)
-            mock_log.warning.assert_not_called()
 
 
 def _make_pool(fetch_return=None, fetchval_return=None) -> MagicMock:

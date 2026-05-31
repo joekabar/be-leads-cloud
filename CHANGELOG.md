@@ -54,6 +54,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`goudengids_skip_recent_hours`** default raised from `0` to **`720`** (30 days). Monthly re-runs skip sectors already scraped within the last month. Override with `--goudengids-skip-recent-hours 0`.
 - **`ddg_brave_skip_recent_hours`** default raised from `0` to **`168`** (7 days). Override with `--ddg-brave-skip-recent-hours 0`.
 - **`db/migrations/006_observations_dedup_index.sql`** — `ix_observations_source_kbo_recent` index on `(source, kbo_number, observed_at DESC)` speeds up the `skip_recent_hours` look-ahead query at scale.
+### Performance (kbo_dump staging — multi-core parse + UNLOGGED tables + no raw_row)
+
+Speeds up `be-leads-kbo-stage` (the local ZIP→staging step) from ~7.5 min to ~5.5 min on the
+full 1.5 GB dump (43.5M rows). Previously the 5 CSV passes ran in an `asyncio.TaskGroup` but,
+being synchronous CPU-bound parse loops, executed on a single core; every row also paid a
+`json.dumps` for the `raw_row` column, and COPY maintained all secondary indexes per row on
+WAL-logged tables.
+
+**`db/migrations/007_kbo_stage_optim.sql`** (new)
+- `SET UNLOGGED` on all 5 `kbo_stage_*` tables — skips WAL for the bulk load (re-stageable, so
+  crash-safety is unneeded; tables are TRUNCATEd on unclean Postgres restart → just re-stage).
+- `DROP COLUMN raw_row` — it duplicated the typed columns and cost a `json.dumps` per row
+  (~14M/run) for a schema-drift net that never fired.
+
+**`sources/kbo_dump/staging.py`** (rewrite)
+- Parses the 5 CSVs in a `ProcessPoolExecutor` (true multi-core). Workers stream escaped rows
+  to a temp TSV file and return `(path, row_count)` — O(1) worker memory, path-only IPC. The
+  `executor` arg is injectable so tests run in-process.
+- `activity.csv` (34.7M rows, the long pole) is decompressed once and parsed across cores via
+  line-aligned byte-range shards, with a single-worker fallback. Activity parse ~314s → ~146s.
+- Drops `kbo_stage_*` secondary indexes before the load and recreates them after.
+- One COPY per table (no per-batch connection churn); no per-row JSON.
+- Real schema-drift detection: `_detect_drift` reads each CSV header and logs
+  `kbo_schema_drift_detected` with the new column names (the old `_check_drift` was dead code —
+  it compared against an empty column set and never fired).
+
+**`sources/kbo_dump/parser.py`**
+- `read_csv_header(zip_path, csv_name)` + `extract_member(zip_path, csv_name, dest)` — CSV header
+  for drift detection and one-pass decompression for parallel activity parsing.
+
+**`sources/kbo_dump/stage_cli.py`**
+- Pool `max_size` 5 → 12 for the concurrent table + activity-shard COPYs.
 
 ### Performance (pipeline — stage-once KBO batch + epoch-level consolidation/scoring)
 

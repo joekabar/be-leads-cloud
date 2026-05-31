@@ -12,7 +12,7 @@ Streamlit UI for sector × city queries.
 ## Architecture map
 - `src/scraper/lib/`              cross-cutting helpers (http, polite, validators, errors, logging, config); `data_paths.py` resolves bundled TOML files (`per-host.toml`, `sectors.toml`, `postcodes.toml`) relative to the installed package
 - `src/scraper/db/`               asyncpg pool, repositories, migrations, Pydantic row models; `fields.py` (ALLOWED_FIELDS + financial-field regex); `sources.py` (ALLOWED_SOURCES registry — validate before inserting any `source` column value)
-- `src/scraper/sources/<name>/`   one directory per source, layout: `fetcher.py | parser.py | ingester.py | cli.py | __init__.py`
+- `src/scraper/sources/<name>/`   one directory per source. Core pipeline is `parser.py` (raw → typed records) → `transformer.py` (typed records → observation tuples) → `ingester.py` (persist) → `cli.py`. The fetch layer is source-specific: `fetcher.py` (kbopub/website/goudengids — goudengids also has `warmup.py`), `client.py` (nbb_authentic), `brave_client.py`/`ddg_client.py`/`classifier.py` (ddg_brave), `downloader.py`/`staging.py`/`stage_cli.py`/`cleanup_cli.py` (kbo_dump — no `fetcher.py`), `structured.py`/`contact_page.py`/`persons.py`/`age.py` (website). `goudengids/archive/` holds the retired httpx warmup approach (excluded from coverage).
 - `src/scraper/pipeline/`         `run.py` (entry), `orchestrator.py` (single-run fan-out), `batch.py` (multi-sector batch orchestrator), `consolidate.py` (placeholder merge), `progress.py` (live progress reporter), `cli.py` / `batch_cli.py`; city slug→postal-code lookup in `city_map.py` (reads `city_map.toml` next to it)
 - `src/scraper/scoring/`          `confidence.py` (priors + decay), `ranking.py` (LeadScore aggregation), `hv_prior.py` (NACE→HV probability table), `prospect.py` (ProspectScore)
 - `src/scraper/ui/`               Streamlit app (`app.py`), `data.py` (main DB queries), `export.py` (CSV export CLI), `components/` (reusable widgets), `queries/` (page-specific DB queries, e.g. `snapshots.py` for KBO staging data), `pages/` (multi-page Streamlit pages)
@@ -21,15 +21,18 @@ Async boundary: every I/O function is `async`. Sync code is forbidden in `source
 UI may call `asyncio.run` at boundaries.
 
 ## Data model
-Five tables + one materialised view.
+Core: five tables + one materialised view, plus batch-support tables (5 `kbo_stage_*` staging tables + `pipeline_progress`). Migrations `001`–`007` live in `src/scraper/db/migrations/` and are applied in order by `runner.py`.
 
 - `run_log` — one row per pipeline run; every `observations` row has a `run_id` FK into it.
 - `observations` — append-only fact store. Each scraped field value is one INSERT; UPDATE is forbidden.
   - Key columns: `kbo_number CHAR(10)`, `field TEXT`, `value JSONB`, `source TEXT`, `confidence NUMERIC(3,2)`, `run_id UUID`.
   - Allowed field names defined in `src/scraper/db/fields.py`: `phone | email | website | address | name | founding_date | nace_code | function_holder | activity_summary | website_age | postal_code | status | cross_validation | legal_form`. Financial fields follow `{revenue|profit|employees}_{YYYY}`.
+  - Allowed `source` strings defined in `src/scraper/db/sources.py::ALLOWED_SOURCES` (validated, else `InvalidSourceError`): `kbo_dump | kbopub | nbb_authentic | goudengids | pagesdor | website | ddg | brave | wayback | manual`. **These differ from directory names** — dir `kbopub_html` → source `"kbopub"`; dir `ddg_brave` → two sources `"ddg"` and `"brave"`. Never write the directory name as the source.
 - `jobs` — `SELECT … FOR UPDATE SKIP LOCKED` worker queue; `JobsRepo.pop_pending()` atomically claims jobs. **Not wired into the pipeline orchestrator** — the orchestrator calls ingesters directly. The table exists for future async-worker use.
 - `prospect_scores` — upsertable (not append-only) commercial scoring table. One row per KBO; populated by `scoring/prospect.py::refresh_prospect_scores(pool)` after each pipeline run. Columns: `hv_probability`, `business_activity`, `contact_quality`, `growth_signal`, `overall_prospect`, `computed_at`. Unlike `observations`, rows are overwritten on conflict.
 - `schema_version` — migration tracker; managed exclusively by `src/scraper/db/migrations/runner.py`.
+- `kbo_stage_*` (5 tables: `enterprise | address | denomination | contact | activity`) — `UNLOGGED`, keyed by `entity_number + snapshot_date`; populated once per ZIP by `sources/kbo_dump/staging.py::stage_zip` (parses the 5 CSVs in a `ProcessPoolExecutor`, drops/recreates secondary indexes around the load). The batch pipeline (Phase A) emits observations from these via SQL filter + COPY — no re-parse. Schema drift is detected by `_detect_drift` (CSV-header compare, logged warning); there is no `raw_row` column (dropped in migration 007).
+- `pipeline_progress` — mutable telemetry table, one row per run, for live UI progress reporting (`pipeline/progress.py`). Not a fact store.
 - `companies_current` (materialised view) — `DISTINCT ON (kbo_number, field)` ordered by `confidence DESC, observed_at DESC`. Refreshed via `refresh_companies_current()` after each pipeline run. Never refresh from a repo method.
 
 See `agent_docs/data-model.md` for full column specs, JSONB shapes, and the no-UPDATE enforcement layers.

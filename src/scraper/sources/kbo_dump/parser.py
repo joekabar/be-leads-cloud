@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import shutil
 import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -91,6 +92,41 @@ class ActivityRow:
     nace_version: str
     nace_code: str
     classification: str
+
+
+def read_csv_header(zip_path: Path, csv_name: str) -> list[str] | None:
+    """Return the column names of *csv_name* inside the ZIP, or None if absent/unreadable.
+
+    Reads only the first line — used for cheap schema-drift detection at stage time.
+    """
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            for n in zf.namelist():
+                if n.lower() == csv_name.lower():
+                    with zf.open(n) as raw:
+                        text = io.TextIOWrapper(raw, encoding="utf-8-sig", newline="")
+                        return next(csv.reader(text), None)
+            return None
+    except (OSError, zipfile.BadZipFile):
+        return None
+
+
+def extract_member(zip_path: Path, csv_name: str, dest_path: str) -> bool:
+    """Decompress one CSV member of the ZIP to *dest_path* (plain, seekable file).
+
+    Returns True on success, False if the member is absent or the ZIP is unreadable.
+    Used to enable parallel byte-range parsing of the large activity.csv.
+    """
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            for n in zf.namelist():
+                if n.lower() == csv_name.lower():
+                    with zf.open(n) as src, open(dest_path, "wb") as dst:
+                        shutil.copyfileobj(src, dst, length=1 << 20)
+                    return True
+            return False
+    except (OSError, zipfile.BadZipFile):
+        return False
 
 
 def parse_meta(zip_path: Path) -> dict[str, str]:
