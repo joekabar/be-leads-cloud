@@ -19,12 +19,19 @@ param(
     [string[]] $City       = @('oostende'),
     [string[]] $RequireField = @('phone'),
     [double]   $MaxRevenue = 2000000,
-    [string]   $OutDir     = "$PSScriptRoot\..\exports",
+    [string]   $OutDir     = '',
     [int]      $KeepDays   = 30
 )
 
 $ErrorActionPreference = 'Stop'
-$repo = Split-Path -Parent $PSScriptRoot
+
+# Do NOT use $PSScriptRoot in a param() default: under `powershell.exe -File` from Task
+# Scheduler it can be empty, which made $OutDir "\..\exports" and silently wrote every
+# scheduled export to C:\exports instead of the repo's exports\ folder. Exit code was 0,
+# so the failure was invisible. Resolve from $PSCommandPath in the body instead.
+$scriptPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path }
+$repo = Split-Path -Parent (Split-Path -Parent $scriptPath)
+if (-not $OutDir) { $OutDir = Join-Path $repo 'exports' }
 Set-Location $repo
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null

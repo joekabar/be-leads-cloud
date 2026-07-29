@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — scheduled exports silently wrote to the wrong drive location
+
+- Both scheduler scripts computed their output directory from `$PSScriptRoot` **in a
+  `param()` default**. Under `powershell.exe -File` from Task Scheduler that variable can be
+  empty, so `$OutDir` became `\..\exports` and every scheduled export landed in `C:\exports`
+  instead of the repo's `exports\`. The task reported **exit code 0**, so the failure was
+  completely invisible: the scheduled run at 22:00 succeeded while the repo folder and its
+  log had not changed since 14:40.
+- Both scripts now resolve the repo root from `$PSCommandPath` in the script body, with
+  `$MyInvocation.MyCommand.Path` as a fallback, and only then derive `exports\` / `logs\`.
+  Verified under the exact scheduler invocation: output goes to the repo, and the stray
+  `C:\exports\daily_export.log` is no longer touched.
+- `scripts/nightly_scrape.ps1` also documents that it must stay pure ASCII: Windows
+  PowerShell 5.1 reads a BOM-less UTF-8 script as ANSI, and a mangled multi-byte character
+  inside a string breaks the parser (an em-dash made the first version fail to parse).
+
+
 ### Added — nightly chunked scraping (`be-leads-next-sectors`)
 
 - goudengids' Imperva WAF blocks on sustained volume, not request rate alone. A 103-sector
