@@ -15,7 +15,7 @@ Streamlit UI for sector × city queries.
 - `src/scraper/sources/<name>/`   one directory per source. Core pipeline is `parser.py` (raw → typed records) → `transformer.py` (typed records → observation tuples) → `ingester.py` (persist) → `cli.py`. The fetch layer is source-specific: `fetcher.py` (kbopub/website/goudengids — goudengids also has `warmup.py`), `client.py` (nbb_authentic), `brave_client.py`/`ddg_client.py`/`classifier.py` (ddg_brave), `downloader.py`/`staging.py`/`stage_cli.py`/`cleanup_cli.py` (kbo_dump — no `fetcher.py`), `structured.py`/`contact_page.py`/`persons.py`/`age.py` (website). `goudengids/archive/` holds the retired httpx warmup approach (excluded from coverage).
 - `src/scraper/pipeline/`         `run.py` (entry), `orchestrator.py` (single-run fan-out), `batch.py` (multi-sector batch orchestrator), `consolidate.py` (placeholder merge), `progress.py` (live progress reporter), `cli.py` / `batch_cli.py`; city slug→postal-code lookup in `city_map.py` (reads `city_map.toml` next to it)
 - `src/scraper/scoring/`          `confidence.py` (priors + decay), `ranking.py` (LeadScore aggregation), `hv_prior.py` (NACE→HV probability table), `prospect.py` (ProspectScore)
-- `src/scraper/ui/`               Streamlit app (`app.py`), `data.py` (main DB queries), `export.py` (CSV export CLI), `components/` (reusable widgets), `queries/` (page-specific DB queries, e.g. `snapshots.py` for KBO staging data), `pages/` (multi-page Streamlit pages)
+- `src/scraper/ui/`               Streamlit app (`app.py`), `data.py` (main DB queries), `export.py` (CSV export CLI), `components/` (reusable widgets), `queries/` (page-specific DB queries, e.g. `snapshots.py` for KBO staging data), `pages/` (multi-page Streamlit pages). **UI-triggered pipeline runs** (added in `8cfc418`): `pages/run_pipeline.py` (batch-launch page) → `run_config.py` (`build_batch_config`: widget values → `BatchConfig`, streamlit-free so it's unit-testable) → `batch_runner.py` (`run_batch_job`: wires a pool + `PoliteClient`, mirrors `batch_cli._run`) run off the script thread via `background.py` (`start_async_job`/`poll_job` — async work in a daemon thread, result delivered through an `st.session_state` queue). This is a second execution path into `pipeline/batch.py::run_batch` that does not go through the CLI.
 
 Async boundary: every I/O function is `async`. Sync code is forbidden in `sources/`, `db/`, `pipeline/`.
 UI may call `asyncio.run` at boundaries.
@@ -152,7 +152,7 @@ uv run pytest tests/unit/ui/test_data.py -v             # single file
 uv run pytest tests/unit/ui/test_data.py::TestFetchResultsForRun::test_empty_run_returns_empty_list -v  # single test
 uv run ruff check . && uv run ruff format --check .
 uv run mypy src/scraper
-uv run streamlit run src/scraper/ui/app.py
+uv run streamlit run src/scraper/ui/app.py   # UI can also launch batch runs (Run Pipeline page → pipeline/batch.py), not just query results
 
 # Pipeline (requires DATABASE_URL)
 uv run be-leads-pipeline --sector elektriciens --city antwerpen --use-fixture

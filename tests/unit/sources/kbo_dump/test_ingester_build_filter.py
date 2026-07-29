@@ -108,3 +108,29 @@ class TestBuildFilterSetNacePrefix:
         ):
             result = _build_filter_set(_FAKE_ZIP, sector_filter=["620"], city_filter=["brugge"])
         assert result == {"0001"}
+
+    def test_city_only_filter_no_sector(self) -> None:
+        """Lines 152-156: city filter without sector filter (else branch)."""
+        addresses = [
+            _address("0001", nl="Brussel"),
+            _address("0002", nl="Gent"),
+        ]
+        with (
+            patch("scraper.sources.kbo_dump.ingester.iter_activities", return_value=iter([])),
+            patch("scraper.sources.kbo_dump.ingester.iter_addresses", return_value=iter(addresses)),
+        ):
+            result = _build_filter_set(_FAKE_ZIP, sector_filter=None, city_filter=["brussel"])
+        assert result == {"0001"}
+
+    def test_city_only_filter_fr_municipality(self) -> None:
+        """City filter matches FR municipality name."""
+        addresses = [
+            _address("0001", fr="Bruxelles"),
+            _address("0002", nl="Gent"),
+        ]
+        with (
+            patch("scraper.sources.kbo_dump.ingester.iter_activities", return_value=iter([])),
+            patch("scraper.sources.kbo_dump.ingester.iter_addresses", return_value=iter(addresses)),
+        ):
+            result = _build_filter_set(_FAKE_ZIP, sector_filter=None, city_filter=["bruxelles"])
+        assert result == {"0001"}

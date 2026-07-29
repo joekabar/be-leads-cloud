@@ -40,3 +40,7 @@ scripts/test_*.py
 .idea/
 *.swp
 *.swo
+
+# Knowledge graph artifacts (graphify / code-review-graph)
+graphify-out/
+.code-review-graph/

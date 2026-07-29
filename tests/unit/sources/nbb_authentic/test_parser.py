@@ -7,10 +7,19 @@ from pathlib import Path
 from scraper.sources.nbb_authentic.parser import (
     FilingData,
     ReferenceRow,
+    _parse_belgian_number,
     parse_accounting_data,
     parse_accounting_pdf,
     parse_references,
 )
+
+
+def test_parse_belgian_number_invalid_string_returns_none() -> None:
+    """Line 21: non-matching string returns None immediately."""
+    assert _parse_belgian_number("not-a-number") is None
+    assert _parse_belgian_number("") is None
+    assert _parse_belgian_number("abc,def") is None
+
 
 _GOLDEN = Path("tests/golden/nbb_authentic")
 
@@ -307,6 +316,15 @@ def test_parse_accounting_pdf_micro_no_employees() -> None:
     pdf = (_PDF_GOLDEN / "0439401387_pdf_2024-00290653.pdf").read_bytes()
     filing = parse_accounting_pdf(_REF_MICRO_2024, pdf)
     assert filing.employees_fte is None
+
+
+def test_parse_references_micro_model_type() -> None:
+    """Line 31: _to_model_type returns 'MICRO' for modelType='MICRO'."""
+    payload = {
+        "references": [{**_REF_TEMPLATE, "referenceNumber": "2024-00012345", "modelType": "MICRO"}]
+    }
+    refs = parse_references(payload)
+    assert refs[0].model_type == "MICRO"
 
 
 def test_parse_accounting_pdf_abbreviated_profit_loss() -> None:
