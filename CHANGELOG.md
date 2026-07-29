@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance — Phase B refreshed the materialised view once per sector
+
+- `goudengids/ingester.py` ran `refresh_companies_current()` in a `finally` block after
+  **every sector**. That rebuild is a `DISTINCT ON` over ~8.7M observation rows and costs
+  ~130 s, so a 103-sector batch paid for 103 of them. Measured live: a sector that found
+  **zero** cards still took 161.8 s, nearly all of it the refresh.
+- Nothing in a batch reads `companies_current` until Phase D (consolidate). The ingester
+  now takes `refresh_matview: bool = True` — default preserved so the standalone
+  `be-leads-discover-goudengids` CLI still leaves the view consistent — and `batch.py`
+  passes `False`, refreshing exactly once before Phase D.
+- Six other ingesters refresh the view the same way; only goudengids is fixed here because
+  only it runs per-sector in a loop. This also contradicts `CLAUDE.md`, which states the
+  view is refreshed *after each pipeline run*.
+
+### Added — explicit pause between Phase B sectors
+
+- The per-sector refresh was, by accident, the only thing pacing Phase B: it sat between
+  one sector's last request and the next sector's first. Removing it would make requests
+  arrive **faster** and trip the Imperva WAF sooner, so `BatchConfig.goudengids_sector_pause_s`
+  (default 120 s) replaces it as deliberate rate control.
+- Observed live on 2026-07-29: goudengids served 8 sectors over ~30 min, then blocked every
+  subsequent sector on page 1. The ingester correctly aborts on a block rather than
+  retrying, per the project's no-retry-on-403 rule.
+
+### Fixed — cards_out_of_city was counted but never logged
+
+- The city filter tracked `GoudengidsReport.cards_out_of_city` but omitted it from the
+  `goudengids_ingest_finished` log line, so a thin run could not be explained from the
+  batch log — exactly when the number matters. Now logged.
+
+
 ### Fixed — city_slug was not case-normalised, forking one city into two histories
 
 - `run_log` holds both `oostende` (31 runs) and `Oostende` (11 runs) for the same city:

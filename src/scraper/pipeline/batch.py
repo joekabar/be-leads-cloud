@@ -88,6 +88,10 @@ class BatchConfig:
     export_dir: Path | None = None
     export_chunk_size: int = 5000
     goudengids_skip_recent_hours: int = 720
+    # Pause between Phase B sectors. Replaces the pacing that the (now removed)
+    # per-sector matview refresh provided by accident: without it, requests arrive
+    # faster and trip the Imperva WAF sooner. Set 0 in tests.
+    goudengids_sector_pause_s: float = 120.0
     ddg_brave_skip_recent_hours: int = 168
 
 
@@ -479,6 +483,10 @@ async def _run_goudengids_sector(
             max_pages=max_pages,
             lang=lang,
             skip_recent_hours=skip_recent_hours,
+            # One refresh before Phase D instead of one per sector. The rebuild costs
+            # ~130 s over millions of rows, and nothing before Phase D reads the view —
+            # a 103-sector run was paying for it 103 times.
+            refresh_matview=False,
         )
         log.info(
             "goudengids_sector_done",
@@ -597,6 +605,9 @@ async def run_batch(
         if not config.do_goudengids:
             return
         for i, sector_slug in enumerate(config.sectors):
+            if i > 0 and config.goudengids_sector_pause_s > 0:
+                # Deliberate rate control, not padding — see BatchConfig.
+                await asyncio.sleep(config.goudengids_sector_pause_s)
             await progress.report(
                 "phase_b",
                 "goudengids",
@@ -765,6 +776,12 @@ async def run_batch(
             log.error("phase_c2_failed", error=str(exc))
 
     # ── Phase D — single consolidation pass ────────────────────────────────────
+    # consolidate() reads companies_current, and the per-sector refreshes are disabled,
+    # so bring the view up to date exactly once here.
+    await progress.report("phase_d", "matview", message="refreshing companies_current")
+    with suppress(Exception):
+        await pool.execute("SELECT refresh_companies_current()")
+
     await progress.report("phase_d", "consolidation", message="consolidating placeholder KBOs")
     log.info("phase_d_started")
     with suppress(Exception):

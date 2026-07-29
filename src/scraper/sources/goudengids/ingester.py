@@ -97,11 +97,18 @@ async def ingest_sector_city(
     max_pages: int = 25,
     lang: Literal["nl", "fr"] = "nl",
     skip_recent_hours: int = 24,
+    refresh_matview: bool = True,
 ) -> GoudengidsReport:
     """Scrape all listing pages for sector x city and write observations.
 
     Idempotent within skip_recent_hours: cards whose placeholder KBO already has a
     recent goudengids observation are skipped.
+
+    *refresh_matview* rebuilds ``companies_current`` when the run finishes. That costs
+    ~130 s against a DISTINCT ON view over millions of observations, so the batch
+    orchestrator passes ``False`` and refreshes once before Phase D (consolidate), which
+    is the first thing in a batch that actually reads the view. It defaults to ``True``
+    so the standalone CLI still leaves the view consistent after a single sector.
     """
     valid_sectors = load_valid_sectors()
     if sector_slug not in valid_sectors:
@@ -199,7 +206,8 @@ async def ingest_sector_city(
                 buffer.clear()
 
     finally:
-        await pool.execute("SELECT refresh_companies_current()")
+        if refresh_matview:
+            await pool.execute("SELECT refresh_companies_current()")
         await runs_repo.finish_run(run_id, jobs_done=report.observations_inserted)
 
     report.duration_s = time.monotonic() - t0
@@ -207,6 +215,7 @@ async def ingest_sector_city(
         "goudengids_ingest_finished",
         pages_scanned=report.pages_scanned,
         cards_found=report.cards_found,
+        cards_out_of_city=report.cards_out_of_city,
         observations_inserted=report.observations_inserted,
         placeholders_created=report.placeholders_created,
         duration_s=round(report.duration_s, 2),
