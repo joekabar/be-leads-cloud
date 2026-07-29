@@ -68,10 +68,15 @@ class TestRunPipelinePageImport:
     def test_page_stops_without_db_url(self) -> None:
         st = _make_st_mock()
         # st.stop is a no-op MagicMock here, so the script continues; we only
-        # assert it was called when DATABASE_URL is absent.
+        # assert it was called when no DSN is configured.
+        #
+        # The page resolves the DSN through database_url(), which loads .env from the
+        # project root — so clearing os.environ is not enough to simulate "unset" on a
+        # developer machine that has a .env. Patch the resolver itself.
         with (
             patch.dict(sys.modules, {"streamlit": st}),
             patch.dict("os.environ", {}, clear=True),
+            patch("scraper.lib.config.database_url", return_value=""),
             patch(
                 "scraper.ui.components.pickers.load_city_options",
                 return_value=[("antwerpen", "Antwerpen", ["2000"])],

@@ -20,7 +20,6 @@ import tomllib
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import structlog
@@ -41,6 +40,7 @@ from scraper.sources.kbo_dump.transformer import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
     from uuid import UUID
 
     import asyncpg
@@ -50,11 +50,29 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
+def resolve_nace_prefixes(sectors: list[str], extra_nace: list[str]) -> list[str]:
+    """Return the NACE prefix filter for a run: sector-mapped prefixes plus manual codes.
+
+    Order-preserving and deduplicated, so an operator entering a code the sector
+    already covers does not widen the ``LIKE ANY`` filter with a redundant pattern.
+    Manual codes make a NACE-only search possible with no sector selected at all.
+    """
+    prefixes: dict[str, None] = {}
+    for slug in sectors:
+        for prefix in _SECTOR_NACE_PREFIXES.get(slug, []):
+            prefixes.setdefault(prefix, None)
+    for prefix in extra_nace:
+        prefixes.setdefault(prefix, None)
+    return list(prefixes)
+
 
 @dataclass(frozen=True, slots=True)
 class BatchConfig:
     city: str
     sectors: list[str]
+    #: NACE prefixes typed directly into the UI, unioned with whatever the selected
+    #: sectors map to. Lets an operator target codes no sector slug covers.
+    extra_nace: list[str] = field(default_factory=list)
     snapshot_date: date | None = None
     lang: Literal["nl", "fr"] = "nl"
     max_pages: int = 25
@@ -537,10 +555,8 @@ async def run_batch(
     )
     log.info("phase_a_old_obs_deleted", result=deleted)
 
-    # Build NACE union across all requested sectors.
-    nace_union: list[str] = []
-    for slug in config.sectors:
-        nace_union.extend(_SECTOR_NACE_PREFIXES.get(slug, []))
+    # Build NACE union across all requested sectors, plus any manually-entered codes.
+    nace_union = resolve_nace_prefixes(config.sectors, config.extra_nace)
 
     await progress.report("phase_a", "filter", message=f"computing entity filter for {config.city}")
     entity_numbers = await get_entity_filter(pool, snapshot_date, config.city, nace_union)

@@ -11,6 +11,7 @@ Progress is shown by the **KBO Data Management → Live Progress** tab, which re
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from pathlib import Path
@@ -24,6 +25,8 @@ from scraper.ui.theme import inject_theme  # noqa: E402
 
 inject_theme()
 
+from scraper.db.pool import check_reachable  # noqa: E402
+from scraper.lib.config import database_url  # noqa: E402
 from scraper.ui.background import poll_job, start_async_job  # noqa: E402
 from scraper.ui.batch_runner import run_batch_job  # noqa: E402
 from scraper.ui.components.pickers import load_city_options, load_sector_options  # noqa: E402
@@ -54,9 +57,11 @@ st.caption(
     "**KBO Data Management -> Live Progress** tab."
 )
 
-_raw_dsn = os.environ.get("DATABASE_URL")
+# Must go through database_url(): it loads .env from the project root. A raw
+# os.environ read executes before anything loads .env and yields "" on first click.
+_raw_dsn = database_url()
 if not _raw_dsn:
-    st.error("**DATABASE_URL** is not set. Export it before launching Streamlit.")
+    st.error("**DATABASE_URL** is not set. Add it to `.env` or export it before launching.")
     st.stop()
 dsn: str = str(_raw_dsn)  # st.stop() above halts the script when DSN is missing
 
@@ -80,6 +85,18 @@ selected_sectors = st.multiselect(
     default=[],
     format_func=lambda s: next((lbl for slg, lbl in sector_options if slg == s), s),
     disabled=all_sectors,
+)
+
+extra_nace_raw = st.text_input(
+    "Extra NACE codes (optional)",
+    value="",
+    placeholder="e.g. 3511, 35.12, 201",
+    help=(
+        "Target NACE codes directly, instead of or alongside the sector list. "
+        "Comma/space/newline separated; dots optional (43.21 and 4321 both work). "
+        "Each entry matches as a prefix, so '43' covers the whole division. "
+        "With codes entered you may leave Sectors empty."
+    ),
 )
 
 col_lang, col_pages = st.columns(2)
@@ -118,6 +135,7 @@ if run_btn:
             city=city_slug,
             sectors=selected_sectors,
             all_sectors=all_sectors,
+            extra_nace_raw=extra_nace_raw,
             lang="fr" if lang == "fr" else "nl",
             max_pages=int(max_pages),
             do_kbo_dump=do_kbo,
@@ -135,10 +153,17 @@ if run_btn:
     except ValueError as exc:
         st.error(str(exc))
     else:
-        st.session_state.batch_queue = start_async_job(lambda: run_batch_job(dsn, config))
-        st.session_state.batch_running = True
-        st.session_state.batch_result = None
-        st.rerun()
+        # Preflight the database before spawning the daemon thread. Without this a
+        # stopped Postgres surfaces as a raw WinError 1225 from inside the thread,
+        # minutes into a run that was never going to work.
+        _db_problem = asyncio.run(check_reachable(dsn))
+        if _db_problem is not None:
+            st.error(_db_problem)
+        else:
+            st.session_state.batch_queue = start_async_job(lambda: run_batch_job(dsn, config))
+            st.session_state.batch_running = True
+            st.session_state.batch_result = None
+            st.rerun()
 
 if st.session_state.batch_running:
     st.warning(

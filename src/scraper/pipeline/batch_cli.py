@@ -30,6 +30,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run all sectors defined in _SECTOR_NACE_PREFIXES.",
     )
     p.add_argument(
+        "--nace",
+        action="append",
+        dest="extra_nace",
+        default=[],
+        metavar="CODE",
+        help=(
+            "NACE prefix to target directly (repeatable, or comma-separated). "
+            "Dots optional. Usable without --sector."
+        ),
+    )
+    p.add_argument(
         "--snapshot-date",
         default=None,
         metavar="YYYY-MM-DD",
@@ -80,7 +91,15 @@ def cli_main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
+    from scraper.lib.errors import InvalidNaceError
+    from scraper.lib.nace import parse_nace_input
     from scraper.pipeline.orchestrator import _SECTOR_NACE_PREFIXES
+
+    try:
+        extra_nace = parse_nace_input(" ".join(args.extra_nace))
+    except InvalidNaceError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
 
     if args.all_sectors:
         sectors = list(_SECTOR_NACE_PREFIXES.keys())
@@ -94,8 +113,11 @@ def cli_main() -> None:
             )
             sys.exit(2)
         sectors = list(args.sectors)
+    elif extra_nace:
+        # NACE-only run: the codes define the search, no sector needed.
+        sectors = []
     else:
-        print("Error: supply --sector SLUG or --all-sectors", file=sys.stderr)
+        print("Error: supply --sector SLUG, --all-sectors, or --nace CODE", file=sys.stderr)
         sys.exit(2)
 
     snapshot_date: date | None = None
@@ -141,6 +163,7 @@ def cli_main() -> None:
         config = BatchConfig(
             city=args.city,
             sectors=sectors,
+            extra_nace=extra_nace,
             snapshot_date=snapshot_date,
             lang=args.lang,
             max_pages=args.max_pages,

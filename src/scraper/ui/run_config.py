@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from scraper.lib.errors import InvalidNaceError
+from scraper.lib.nace import parse_nace_input
 from scraper.pipeline.batch import BatchConfig
 from scraper.pipeline.orchestrator import _SECTOR_NACE_PREFIXES
 
@@ -17,16 +19,22 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def resolve_sectors(sectors: list[str], *, all_sectors: bool) -> list[str]:
+def resolve_sectors(
+    sectors: list[str], *, all_sectors: bool, allow_empty: bool = False
+) -> list[str]:
     """Return the validated sector slug list.
 
     ``all_sectors`` wins over an explicit list (mirrors ``batch_cli``). Raises
-    ``ValueError`` on an unknown slug or when neither input selects anything.
+    ``ValueError`` on an unknown slug, or when nothing is selected — unless
+    *allow_empty*, which the caller sets when manual NACE codes already define
+    the search on their own.
     """
     if all_sectors:
         return list(_SECTOR_NACE_PREFIXES.keys())
     if not sectors:
-        raise ValueError("Select at least one sector, or enable 'all sectors'.")
+        if allow_empty:
+            return []
+        raise ValueError("Select at least one sector, enable 'all sectors', or enter NACE code(s).")
     unknown = [s for s in sectors if s not in _SECTOR_NACE_PREFIXES]
     if unknown:
         valid = ", ".join(sorted(_SECTOR_NACE_PREFIXES))
@@ -39,6 +47,7 @@ def build_batch_config(
     city: str,
     sectors: list[str],
     all_sectors: bool = False,
+    extra_nace_raw: str = "",
     lang: Literal["nl", "fr"] = "nl",
     max_pages: int = 25,
     do_kbo_dump: bool = True,
@@ -61,10 +70,16 @@ def build_batch_config(
     """
     if not city.strip():
         raise ValueError("city is required")
-    resolved = resolve_sectors(sectors, all_sectors=all_sectors)
+    try:
+        extra_nace = parse_nace_input(extra_nace_raw)
+    except InvalidNaceError as exc:
+        # Surface as ValueError so the page renders it like any other input error.
+        raise ValueError(str(exc)) from exc
+    resolved = resolve_sectors(sectors, all_sectors=all_sectors, allow_empty=bool(extra_nace))
     return BatchConfig(
         city=city.strip(),
         sectors=resolved,
+        extra_nace=extra_nace,
         lang=lang,
         max_pages=max_pages,
         nbb_subscription_key=nbb_subscription_key,

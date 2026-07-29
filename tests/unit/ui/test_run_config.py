@@ -33,6 +33,25 @@ class TestBuildBatchConfig:
         with pytest.raises(ValueError, match="sector"):
             build_batch_config(city="antwerpen", sectors=[], all_sectors=False)
 
+    def test_nace_only_search_needs_no_sector(self) -> None:
+        """Manual NACE codes are a valid search on their own."""
+        cfg = build_batch_config(city="antwerpen", sectors=[], extra_nace_raw="3511, 35.12")
+        assert cfg.sectors == []
+        assert cfg.extra_nace == ["3511", "3512"]
+
+    def test_nace_combined_with_sectors(self) -> None:
+        cfg = build_batch_config(city="antwerpen", sectors=["elektriciens"], extra_nace_raw="3511")
+        assert cfg.sectors == ["elektriciens"]
+        assert cfg.extra_nace == ["3511"]
+
+    def test_invalid_nace_raises_naming_the_input(self) -> None:
+        with pytest.raises(ValueError, match="bogus"):
+            build_batch_config(city="antwerpen", sectors=[], extra_nace_raw="bogus")
+
+    def test_blank_nace_is_ignored(self) -> None:
+        cfg = build_batch_config(city="antwerpen", sectors=[], all_sectors=True, extra_nace_raw="")
+        assert cfg.extra_nace == []
+
     def test_empty_city_raises(self) -> None:
         with pytest.raises(ValueError, match="city"):
             build_batch_config(city="  ", sectors=[], all_sectors=True)

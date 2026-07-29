@@ -67,6 +67,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   empty) and re-emits duplicates one last time; every run after that is incremental.
   Existing duplicate observations from previous runs are left in place — nothing is deleted.
 
+### Added — manual NACE codes in the search parameters
+
+- **`src/scraper/lib/nace.py`** (new) — `parse_nace_input` / `normalize_nace`. Accepts the
+  dotted form copied from official tables (`43.21`) as well as KBO's dotless form, split on
+  commas/semicolons/whitespace, deduplicated and order-preserving. A single bad entry raises
+  the new `InvalidNaceError` rather than being silently dropped, so a typo cannot quietly
+  narrow a search.
+- **`BatchConfig.extra_nace`** + `batch.py::resolve_nace_prefixes(sectors, extra_nace)` — the
+  Phase A staging filter is now the union of sector-mapped prefixes and manually entered
+  codes. Entering a code a sector already covers does not duplicate the `LIKE ANY` pattern.
+- **UI** — "Extra NACE codes (optional)" on the batch run page; **Sectors may be left empty**
+  when codes are supplied (`resolve_sectors(..., allow_empty=True)`), making a NACE-only
+  search possible. Same via `be-leads-pipeline-batch --nace CODE` (repeatable).
+
 ### Fixed — goudengids ignored the requested city
 
 - goudengids serves a **nationwide** result list when a sector is thin locally, and those cards
