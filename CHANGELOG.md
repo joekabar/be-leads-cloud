@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — nightly chunked scraping (`be-leads-next-sectors`)
+
+- goudengids' Imperva WAF blocks on sustained volume, not request rate alone. A 103-sector
+  run served 8 sectors in ~30 min, then blocked **15 of the next 21** (71%). Scraping a
+  small slice per night keeps each session under that threshold.
+- **`pipeline/sector_queue.py`** — `select_pending_sectors()` returns the next N sectors a
+  city still needs, preserving config order so the rotation covers everything once before
+  repeating. `completed_sectors()` counts a sector as done only when it produced
+  observations (`jobs_done > 0`): a blocked run reached the WAF, not the data, so treating
+  it as done would skip that sector forever.
+- **`be-leads-next-sectors --city X --limit N`** prints the pending slugs, or nothing when
+  the city is fully covered so the caller can skip the night. `--cycle` restarts the
+  rotation for a city that should be refreshed continuously.
+- **`scripts/nightly_scrape.ps1`** — asks for the night's slice and scrapes only those
+  sectors, skipping `kbo_dump` since staging is already loaded.
+
+
 ### Performance — Phase B refreshed the materialised view once per sector
 
 - `goudengids/ingester.py` ran `refresh_companies_current()` in a `finally` block after
