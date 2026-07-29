@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the UI checks the database is reachable before starting a run
+
+- A stopped Postgres previously surfaced as a raw `WinError 1225` from inside the batch
+  daemon thread, minutes into a run that was never going to work. `db/pool.py::check_reachable`
+  now preflights the connection and `_friendly_db_error` maps the failure to an actionable
+  message ("Start Docker Desktop, then run `docker compose up -d pg`"). Wired into both entry
+  points: `ui/app.py` before the sector loop and `ui/pages/run_pipeline.py` before
+  `start_async_job`.
+- The timeout is passed **natively** to `asyncpg.connect` rather than wrapping the call in
+  `asyncio.wait_for` — the same precedent as the staging COPY and prospect upsert fixes, since
+  cancelling asyncpg from outside makes it take its generic cancel path, which can hang on the
+  very socket this preflight exists to test.
+- `ui/app.py` also had a fall-through bug: when `DATABASE_URL` was unset it rendered an error
+  and then **continued into the sector loop anyway**. It now stops. `ui/pages/run_pipeline.py`
+  resolved the DSN with a raw `os.environ` read — the same bug already fixed in `app.py` — and
+  now goes through `lib/config.py::database_url()`, which loads `.env` from the project root.
+
 ### Fixed — Phase F wedged on an unbounded prospect_scores upsert
 
 - `scoring/prospect.py::refresh_prospect_scores` sent every score in **one**
@@ -76,6 +93,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   passed while production was wrong. Now reads `value`, with `text` kept as a fallback.
   After rescoring: business_activity 0.5 for 1,941,153 KBOs and 1.0 for 7,250 (previously 0.0
   for all 1,959,468). Sample lead 0738550377 moved 0.200 -> 0.300 overall.
+
+### Fixed — the UI could not show a completed batch run
+
+- The search page rendered results only from `st.session_state`, so a batch finished on the
+  CLI or in another browser session was invisible — the only way to see leads that already
+  existed was to re-run the whole pipeline. Added `ui/data.py::fetch_completed_runs` and a
+  "Load a completed run" control that replays any finished sector x city run through the same
+  `fetch_results_for_run` path, so loaded results are indistinguishable from a live run.
+  Only runs with an `ended_at` and both a sector and city are offered.
+- `ui/app.py` resolved `DATABASE_URL` with a raw `os.environ` read that executes *before*
+  anything loads `.env`, yielding `""` on the first click and silently skipping the results
+  fetch. Now goes through the new `lib/config.py::database_url()`, with `.env` located from
+  the **project root** (`project_root()`) instead of the working directory.
+- A NACE-only run writes `sector_slug` NULL, so requiring a sector hid exactly the searches
+  the new NACE input makes possible. `fetch_completed_runs` now requires only a city, and the
+  picker labels such runs "NACE-only x <city>".
+- `fetch_results_for_run` gained an optional `run_id`, used by the load path. Discovery
+  previously fell back to "every company whose address city matches" when no sector was
+  given — for Antwerpen that is tens of thousands of companies aggregated in Python, and the
+  page hung. Scoping by `run_id` is exact and returned 135 companies in ~12 s. The live-run
+  path (no `run_id`) is unchanged.
 
 ### Added (UI-first operation: server + local goudengids)
 

@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     import asyncpg
 
 from scraper.db.repositories.observations import _row_to_obs
@@ -128,10 +130,41 @@ def _aggregate_row(kbo: str, obs_list: list[Any], now: datetime) -> dict[str, An
     }
 
 
+async def fetch_completed_runs(
+    pool: asyncpg.Pool,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Return recent finished sector x city runs, newest first.
+
+    Lets the search page load leads from a batch run that completed elsewhere — on the
+    CLI, or in another browser session — instead of forcing a fresh pipeline run just
+    to see results that are already in the database.
+
+    Only runs with an ``ended_at`` are offered (an in-flight run has partial data) and
+    only those carrying a city. The sector is deliberately *not* required: a NACE-only
+    run — manual codes with no sector selected — writes ``sector_slug`` NULL, and
+    requiring one would hide exactly the searches the NACE input makes possible.
+    Enrichment runs such as kbopub/nbb carry no city and stay excluded.
+    """
+    rows = await pool.fetch(
+        """
+        SELECT run_id, sector_slug, city_slug, source, started_at, ended_at, jobs_done
+        FROM run_log
+        WHERE ended_at IS NOT NULL
+          AND city_slug IS NOT NULL
+        ORDER BY started_at DESC
+        LIMIT $1
+        """,
+        limit,
+    )
+    return [dict(r) for r in rows]
+
+
 async def fetch_results_for_run(
     pool: asyncpg.Pool,
     started_at: datetime,
     *,
+    run_id: UUID | None = None,
     sector: str | None = None,
     city: str | None = None,
     postcodes: tuple[str, ...] | None = None,
@@ -181,8 +214,17 @@ async def fetch_results_for_run(
         except ValueError:
             nace_prefixes = None
 
-    # KBO discovery: use city+NACE join when both are known for efficiency.
-    if city and nace_prefixes:
+    # KBO discovery. A run_id is the most precise scope available and is used by the
+    # "load a completed run" path: the run knows exactly which KBOs it touched. Without
+    # it and without a sector, discovery would fall back to every company in the city —
+    # tens of thousands for Antwerpen, all aggregated in Python.
+    if run_id is not None:
+        kbo_rows = await pool.fetch(
+            "SELECT DISTINCT kbo_number FROM observations WHERE run_id = $1",
+            run_id,
+        )
+    # Use city+NACE join when both are known for efficiency.
+    elif city and nace_prefixes:
         nace_patterns = [f"{p}%" for p in nace_prefixes]
         kbo_rows = await pool.fetch(
             "SELECT DISTINCT kbo_number FROM observations "

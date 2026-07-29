@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
@@ -39,6 +40,43 @@ async def init_pool(
         raise RuntimeError("asyncpg.create_pool returned None")
     _pool = pool
     return _pool
+
+
+def _friendly_db_error(exc: BaseException) -> str:
+    """Map a raw connection failure to an actionable message for the UI.
+
+    ``WinError 1225`` / ``ConnectionRefusedError`` means nothing is listening on the
+    Postgres port — almost always a stopped database container.
+    """
+    text = str(exc)
+    if isinstance(exc, ConnectionRefusedError) or "1225" in text or "refused" in text.lower():
+        return (
+            "Cannot reach Postgres — connection refused. Is the database running? "
+            "Start Docker Desktop, then run `docker compose up -d pg`."
+        )
+    if isinstance(exc, asyncio.TimeoutError):
+        return (
+            "Cannot reach Postgres — connection timed out. Is the database running and reachable?"
+        )
+    return f"Cannot reach Postgres: {text}"
+
+
+async def check_reachable(dsn: str, *, timeout_s: float = 3.0) -> str | None:
+    """Preflight check: return ``None`` if Postgres accepts a connection, else a reason.
+
+    Used by the Streamlit UI before launching a run so a stopped database surfaces as a
+    clear message instead of a raw ``OSError`` / ``WinError 1225`` mid-pipeline.
+
+    The timeout is passed natively to asyncpg rather than wrapping the call in
+    ``asyncio.wait_for``: cancelling asyncpg from outside makes it take its generic
+    cancel path, which can hang on the same unreachable socket we are testing for.
+    """
+    try:
+        conn = await asyncpg.connect(dsn, timeout=timeout_s)
+    except (TimeoutError, OSError, asyncpg.PostgresError) as exc:
+        return _friendly_db_error(exc)
+    await conn.close()
+    return None
 
 
 async def close_pool() -> None:

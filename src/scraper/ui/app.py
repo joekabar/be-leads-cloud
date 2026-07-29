@@ -5,13 +5,118 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from typing import TYPE_CHECKING
 
 import streamlit as st
 
+if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID
+
+from scraper.pipeline.orchestrator import PipelineReport
 from scraper.ui.theme import inject_theme
 
 st.set_page_config(page_title="Belgian B2B Lead Generator", layout="wide")
 inject_theme()
+
+
+def _load_completed_run(**filters: object) -> None:
+    """Offer recent finished runs and load one into session_state on demand.
+
+    Rendered above the results table. Reads the same ``fetch_results_for_run`` path the
+    live run uses, so a loaded run is indistinguishable from one just executed.
+    """
+    from scraper.lib.config import database_url
+
+    db_url = database_url()
+    if not db_url:
+        return
+
+    from scraper.db.pool import init_pool
+    from scraper.ui.data import fetch_completed_runs
+
+    async def _runs() -> list[dict[str, object]]:
+        p = await init_pool(db_url)
+        try:
+            return await fetch_completed_runs(p)
+        finally:
+            await p.close()
+
+    try:
+        runs = asyncio.run(_runs())
+    except Exception as exc:
+        st.warning(f"Could not list previous runs: {type(exc).__name__}: {exc}")
+        return
+
+    if not runs:
+        return
+
+    with st.expander(f"Load a completed run ({len(runs)} available)", expanded=False):
+        # sector_slug is NULL for NACE-only runs (manual codes, no sector selected).
+        labels = [
+            f"{r['sector_slug'] or 'NACE-only'} x {r['city_slug']} - {r['source']} - "
+            f"{r['started_at']:%Y-%m-%d %H:%M} ({r['jobs_done']} jobs)"
+            for r in runs
+        ]
+        idx = st.selectbox("Previous run", range(len(labels)), format_func=lambda i: labels[i])
+        if st.button("Load results", use_container_width=True):
+            chosen = runs[idx]
+
+            async def _fetch() -> list[dict[str, object]]:
+                from scraper.ui.data import fetch_results_for_run
+
+                p = await init_pool(db_url)
+                try:
+                    # Scope by run_id: exact, and avoids the city-wide fallback that a
+                    # sector-less (NACE-only) run would otherwise trigger.
+                    return await fetch_results_for_run(
+                        p,
+                        chosen["started_at"],  # type: ignore[arg-type]
+                        run_id=chosen["run_id"],  # type: ignore[arg-type]
+                        city=str(chosen["city_slug"]),
+                        **filters,  # type: ignore[arg-type]
+                    )
+                finally:
+                    await p.close()
+
+            try:
+                rows = asyncio.run(_fetch())
+            except Exception as exc:
+                st.error(f"Could not load run: {type(exc).__name__}: {exc}")
+                return
+
+            for row in rows:
+                row["sector"] = chosen["sector_slug"] or "NACE-only"
+            st.session_state["last_rows"] = rows
+            st.session_state["last_report"] = _loaded_run_report(
+                run_id=chosen["run_id"],  # type: ignore[arg-type]
+                sector=str(chosen["sector_slug"] or "NACE-only"),
+                city=str(chosen["city_slug"]),
+                started_at=chosen["started_at"],  # type: ignore[arg-type]
+                rows=len(rows),
+            )
+            st.session_state["last_log"] = ""
+            st.rerun()
+
+
+def _loaded_run_report(
+    *, run_id: UUID, sector: str, city: str, started_at: datetime, rows: int
+) -> PipelineReport:
+    """Build a PipelineReport describing a run loaded from the database.
+
+    Reuses the real report type rather than a look-alike so every consumer
+    (``render_diagnostics``, the results table) keeps working without knowing the
+    results came from history. The per-source breakdown stays empty because it is
+    never persisted — only the run's identity and its rows survive.
+    """
+    return PipelineReport(
+        run_id=run_id,
+        sector=sector,
+        city=city,
+        started_at=started_at,
+        ended_at=None,
+        companies_in_view=rows,
+    )
 
 
 def main() -> None:
@@ -160,15 +265,52 @@ def main() -> None:
     if not run_btn and st.session_state["last_report"] is None:
         st.markdown(
             '<p style="color:#505A5F;font-size:0.9rem;margin-top:1rem;">'
-            "Configure your search in the sidebar and click <strong>Run pipeline</strong>."
+            "Configure your search in the sidebar and click <strong>Run pipeline</strong>, "
+            "or load a run that already finished below."
             "</p>",
             unsafe_allow_html=True,
         )
 
+    # ── Load a previously completed run ───────────────────────────────────
+    # A batch run started on the CLI or in another browser session leaves its leads in
+    # the database, but session_state is empty here — without this the only way to see
+    # them was to re-run the whole pipeline.
+    _load_completed_run(
+        min_score=min_score,
+        require_phone=require_phone,
+        require_website=require_website,
+        require_email=require_email,
+        active_only=active_only,
+        founded_after=founded_after,
+        founded_before=founded_before,
+        min_revenue=min_revenue,
+        min_employees=min_employees,
+        size_categories=size_categories,
+    )
+
     if run_btn and selected_sector_slugs:
+        from scraper.db.pool import check_reachable
+        from scraper.lib.config import database_url
         from scraper.pipeline.orchestrator import PipelineConfig, resolve_sector_slugs
 
-        db_url = os.environ.get("DATABASE_URL", "")
+        # Must go through database_url(): it loads .env from the project root. A raw
+        # os.environ read here returns "" before anything has loaded .env, which
+        # silently skips the results fetch below and renders an empty table.
+        db_url = database_url()
+        if not db_url:
+            st.error(
+                "DATABASE_URL is not set, so results cannot be loaded. Add it to `.env` "
+                "in the project root (or export it) and restart the app."
+            )
+            st.stop()
+
+        # Preflight the database before running anything. A stopped Postgres otherwise
+        # surfaces as a raw WinError 1225 partway through the first sector.
+        db_problem = asyncio.run(check_reachable(db_url))
+        if db_problem is not None:
+            st.error(db_problem)
+            st.stop()
+
         all_rows: list[dict[str, object]] = []
         last_report: object = None
         log_parts: list[str] = []
@@ -223,7 +365,6 @@ def main() -> None:
 
                 if db_url:
                     from scraper.db.pool import init_pool
-                    from scraper.pipeline.orchestrator import PipelineReport
                     from scraper.ui.data import fetch_results_for_run
 
                     async def _fetch(
