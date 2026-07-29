@@ -44,3 +44,6 @@ scripts/test_*.py
 # Knowledge graph artifacts (graphify / code-review-graph)
 graphify-out/
 .code-review-graph/
+
+# Lead exports contain business contact data — never commit
+exports/
