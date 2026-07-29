@@ -115,7 +115,10 @@ def _aggregate_row(kbo: str, obs_list: list[Any], now: datetime) -> dict[str, An
         "website": website_val.get("url", "") if website_val else "",
         "website_summary": activity_val.get("text", "") if activity_val else "",
         "founding_date": founding_val.get("iso") if founding_val else None,
-        "status": status_val.get("text", "") if status_val else "",
+        # Producers write {"value": "active"}; "text" kept as a legacy fallback.
+        # Reading only "text" left status blank everywhere, which also silently
+        # disabled the active_only filter (blank == "unknown", and unknowns pass).
+        "status": (status_val.get("value") or status_val.get("text", "")) if status_val else "",
         "nace_code": nace_val.get("code", "") if nace_val else "",
         "nace_description": nace_val.get("description", "") if nace_val else "",
         "legal_form_code": legal_form_val.get("code", "") if legal_form_val else "",

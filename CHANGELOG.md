@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — status was blank everywhere, silently disabling the active-company filter
+
+- `ui/data.py::_aggregate_row` read `status["text"]`, but both kbo_dump producers write
+  `status = {"value": "active"}` — the same defect already fixed in
+  `scoring/prospect.py::_business_activity` and missed here. All 1,948,404 status rows in
+  `companies_current` are `{"value": "active"}`, so the column was empty in **every** CSV
+  export and in the UI results table.
+- The worse half: `_passes_filters` treats an empty status as "unknown, keep" (missing
+  values pass). Because status was *always* empty, the `active_only` filter matched
+  everything — dissolved companies passed a filter meant to exclude them. Now reads
+  `value`, with `text` kept as a fallback.
+
 ### Added — the UI checks the database is reachable before starting a run
 
 - A stopped Postgres previously surfaced as a raw `WinError 1225` from inside the batch
