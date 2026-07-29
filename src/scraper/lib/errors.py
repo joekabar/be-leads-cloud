@@ -25,6 +25,33 @@ class InvalidSourceError(ScraperError):
         self.name = name
 
 
+class ScoringTimeoutError(ScraperError):
+    """A prospect_scores upsert batch exceeded its timeout.
+
+    Raised instead of hanging: an unbounded upsert wedged Phase F for 25+ minutes with
+    Postgres in state=active/ClientRead and the client idle.
+    """
+
+    def __init__(self, table: str, timeout_s: float) -> None:
+        super().__init__(
+            f"Upsert into {table} exceeded {timeout_s}s. The connection is likely wedged; "
+            "re-run the scoring pass."
+        )
+        self.table = table
+        self.timeout_s = timeout_s
+
+
+class InvalidNaceError(ScraperError):
+    """A user-supplied NACE code is not 1-5 digits after normalisation."""
+
+    def __init__(self, raw: str) -> None:
+        super().__init__(
+            f"Invalid NACE code: {raw!r}. Expected 1-5 digits, e.g. 4321 or 43.21 "
+            "(KBO stores codes without dots)."
+        )
+        self.raw = raw
+
+
 class HttpError(ScraperError):
     def __init__(self, status: int, url: str, message: str) -> None:
         super().__init__(message)

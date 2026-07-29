@@ -12,9 +12,12 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from scraper.db.fields import is_financial_field
+from scraper.lib.errors import ScoringTimeoutError
 from scraper.scoring.hv_prior import hv_probability
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator, Sequence
+
     import asyncpg
 
 logger = structlog.get_logger()
@@ -33,11 +36,17 @@ class ProspectScore:
 
 
 def _business_activity(fields: dict[str, Any]) -> float:
-    """Return [0,1] — 1.0 requires both active status and a financial observation."""
+    """Return [0,1] — 1.0 requires both active status and a financial observation.
+
+    Status observations are written as ``{"value": "active"}`` by both kbo_dump
+    producers; ``"text"`` is still accepted so a source using that shape is not
+    dropped. Reading only ``"text"`` made every company look inactive.
+    """
     status_val = fields.get("status")
     status_text = ""
     if isinstance(status_val, dict):
-        status_text = str(status_val.get("text", "")).lower()
+        raw = status_val.get("value") or status_val.get("text") or ""
+        status_text = str(raw).lower()
     is_active = "active" in status_text or "actief" in status_text
 
     has_financial = any(is_financial_field(f) for f in fields)
@@ -83,8 +92,35 @@ def compute_prospect_score(kbo: str, fields: dict[str, Any]) -> ProspectScore:
     )
 
 
-async def refresh_prospect_scores(pool: asyncpg.Pool) -> int:
+#: Rows per upsert batch. One call carrying ~2M parameter tuples wedged Phase F for
+#: 25+ minutes (Postgres active/ClientRead, client idle at 0% CPU, 4.3 GB resident).
+_UPSERT_CHUNK_SIZE = 5_000
+
+#: Per-batch ceiling. Bounded batches fail fast instead of hanging indefinitely.
+_UPSERT_TIMEOUT_S = 120.0
+
+
+def _chunked[T](items: Sequence[T], chunk_size: int) -> Iterator[list[T]]:
+    """Yield consecutive slices of *items* of at most *chunk_size* elements."""
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be positive, got {chunk_size}")
+    for start in range(0, len(items), chunk_size):
+        yield list(items[start : start + chunk_size])
+
+
+async def refresh_prospect_scores(
+    pool: asyncpg.Pool,
+    *,
+    chunk_size: int = _UPSERT_CHUNK_SIZE,
+    timeout_s: float = _UPSERT_TIMEOUT_S,
+) -> int:
     """Read companies_current, compute ProspectScore per KBO, bulk-upsert to prospect_scores.
+
+    The upsert is sent in bounded batches, each with its own timeout. A single call
+    carrying every tuple wedged in production, and being unbounded it had no timeout to
+    break the deadlock. The timeout is passed natively to asyncpg rather than wrapping
+    the call in ``asyncio.wait_for``: cancelling from outside makes asyncpg take its
+    generic cancel path, which needs the same wedged socket and can hang in turn.
 
     Returns the number of KBOs upserted.
     """
@@ -116,19 +152,26 @@ async def refresh_prospect_scores(pool: asyncpg.Pool) -> int:
             overall_prospect  = EXCLUDED.overall_prospect,
             computed_at       = EXCLUDED.computed_at
     """
-    await pool.executemany(
-        upsert_sql,
-        [
-            (
-                s.kbo_number,
-                s.hv_probability,
-                s.business_activity,
-                s.contact_quality,
-                s.growth_signal,
-                s.overall_prospect,
-            )
-            for s in scores
-        ],
+    params = [
+        (
+            s.kbo_number,
+            s.hv_probability,
+            s.business_activity,
+            s.contact_quality,
+            s.growth_signal,
+            s.overall_prospect,
+        )
+        for s in scores
+    ]
+
+    async with pool.acquire() as conn:
+        for batch in _chunked(params, chunk_size):
+            try:
+                await conn.executemany(upsert_sql, batch, timeout=timeout_s)
+            except TimeoutError as exc:
+                raise ScoringTimeoutError("prospect_scores", timeout_s) from exc
+
+    logger.info(
+        "prospect_scores_refreshed", kbos=len(scores), batches=-(-len(params) // chunk_size)
     )
-    logger.info("prospect_scores_refreshed", kbos=len(scores))
     return len(scores)

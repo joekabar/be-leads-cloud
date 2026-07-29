@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Phase F wedged on an unbounded prospect_scores upsert
+
+- `scoring/prospect.py::refresh_prospect_scores` sent every score in **one**
+  `pool.executemany` — ~1.96M parameter tuples materialised in a single Python list.
+  A UI-launched batch wedged there for 25+ minutes: Postgres in
+  `state=active`/`wait_event=ClientRead`, the client at 0% CPU holding 4.3 GB, no
+  blocking locks. Being unbounded, the call also had no timeout, so it hung
+  indefinitely rather than failing. The identical operation had taken 110 s on earlier
+  runs, so it was stuck, not slow.
+- The upsert is now sent in bounded batches (`_chunked`, 5,000 rows) on a single
+  acquired connection, each with a native asyncpg `timeout=`. Following the precedent
+  from the staging COPY fix, the timeout is passed **into** asyncpg rather than wrapping
+  the call in `asyncio.wait_for`: cancelling from outside makes asyncpg take its generic
+  cancel path, which needs the same wedged socket and can hang in turn. A batch that
+  exceeds its ceiling raises the new `ScoringTimeoutError`.
+- Verified against the same 1.96M-row production database that had just wedged:
+  **1,959,502 KBOs in 392 batches, 147.6 s.** No data was lost by the wedge — the
+  uncommitted upsert rolled back and all 1,959,506 rows remained intact.
+
+### Fixed — business_activity was 0.0 for every company in the database
+
+- `scoring/prospect.py::_business_activity` read `status["text"]`, but both kbo_dump producers
+  write `status = {"value": "active"}`. `is_active` was therefore always False, pinning
+  `business_activity` at 0.0 for all 1.9M companies and zeroing 20% of the prospect score.
+  The pre-existing tests all used the `"text"` shape — which no producer emits — so they
+  passed while production was wrong. Now reads `value`, with `text` kept as a fallback.
+  After rescoring: business_activity 0.5 for 1,941,153 KBOs and 1.0 for 7,250 (previously 0.0
+  for all 1,959,468). Sample lead 0738550377 moved 0.200 -> 0.300 overall.
+
 ### Added (UI-first operation: server + local goudengids)
 
 - **`src/scraper/ui/pages/run_pipeline.py`** — new Streamlit page to trigger the production **batch** pipeline from the browser (city × sectors, per-source toggles, dedup windows, optional export dir). Runs `run_batch` in a daemon thread; progress shows on the existing KBO Data → Live Progress tab.
