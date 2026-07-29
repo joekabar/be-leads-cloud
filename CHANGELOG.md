@@ -26,6 +26,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **1,959,502 KBOs in 392 batches, 147.6 s.** No data was lost by the wedge — the
   uncommitted upsert rolled back and all 1,959,506 rows remained intact.
 
+### Fixed — consolidation redid all its work on every run
+
+- `pipeline/consolidate.py` re-matched **every** placeholder in the database on every
+  run and re-emitted the observations of every match again. Two consecutive production
+  runs both logged `matches=2797, observations_re_emitted=43466` — the same ~43k rows
+  inserted a second time into an append-only table — after ~40 min of single-threaded
+  rapidfuzz matching that grows with each goudengids discovery.
+- New `consolidation_state` table (migration `008`) records every processed placeholder:
+  `real_kbo` set on a match, NULL on a non-match, tagged with the KBO `snapshot_date`
+  the attempt was made against. `select_placeholders_to_process()` then skips matched
+  placeholders permanently (their observations already exist) and retries unmatched ones
+  only once a **newer snapshot** is staged — the only thing that can turn a previous
+  non-match into a match. `consolidate(..., force=True)` reprocesses everything.
+- Steady-state consolidation is now proportional to *new* placeholders rather than the
+  whole population. Integration-tested against a real DB: a second run returns no
+  matches and adds no observations.
+- `tests/integration/conftest.py::clean_pool` now truncates `consolidation_state`.
+  Without it, a placeholder left by an earlier test is skipped as "already processed"
+  and the next test silently sees zero matches — which is exactly how it first failed.
+
+  Note: the first run after this change still does one full pass (the state table starts
+  empty) and re-emits duplicates one last time; every run after that is incremental.
+  Existing duplicate observations from previous runs are left in place — nothing is deleted.
+
 ### Fixed — business_activity was 0.0 for every company in the database
 
 - `scoring/prospect.py::_business_activity` read `status["text"]`, but both kbo_dump producers

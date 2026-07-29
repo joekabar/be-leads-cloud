@@ -1,13 +1,205 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
+
 from rapidfuzz import fuzz
 
 from scraper.pipeline.consolidate import (
     ConsolidationMatch,
     _best_match,
+    _gather_kbo_infos,
     _KboInfo,
     _normalize_for_match,
+    _run_matching,
+    _strip_diacritics,
+    consolidate,
 )
+
+
+class TestStripDiacritics:
+    def test_removes_accent(self) -> None:
+        assert _strip_diacritics("Bückens") == "Buckens"
+
+    def test_plain_ascii_unchanged(self) -> None:
+        assert _strip_diacritics("hello") == "hello"
+
+    def test_empty_string(self) -> None:
+        assert _strip_diacritics("") == ""
+
+
+class TestGatherKboInfos:
+    async def test_placeholder_path_returns_infos(self) -> None:
+        pool = _make_consolidate_pool(
+            [{"kbo_number": "9000000001", "name": "Acme NV"}],
+            [{"kbo_number": "9000000001", "postal_code": "2000", "city": "Antwerpen"}],
+        )
+        result = await _gather_kbo_infos(pool, is_placeholder=True)
+        assert len(result) == 1
+        assert result[0].kbo == "9000000001"
+        assert result[0].postal_code == "2000"
+        assert result[0].city == "antwerpen"
+
+    async def test_real_path_uses_different_sql(self) -> None:
+        pool = _make_consolidate_pool(
+            [{"kbo_number": "0400000001", "name": "Real NV"}],
+            [{"kbo_number": "0400000001", "postal_code": "1000", "city": "Brussel"}],
+        )
+        result = await _gather_kbo_infos(pool, is_placeholder=False)
+        assert len(result) == 1
+        assert result[0].kbo == "0400000001"
+
+    async def test_missing_address_defaults_to_empty(self) -> None:
+        pool = _make_consolidate_pool(
+            [{"kbo_number": "9000000001", "name": "Acme NV"}],
+            [],  # no address rows
+        )
+        result = await _gather_kbo_infos(pool, is_placeholder=True)
+        assert len(result) == 1
+        assert result[0].postal_code == ""
+        assert result[0].city == ""
+
+
+class TestRunMatching:
+    def test_returns_match_for_identical_names(self) -> None:
+        placeholder = _KboInfo(
+            kbo="9000000001",
+            name="Acme NV",
+            name_norm=_normalize_for_match("Acme NV"),
+            postal_code="2000",
+            city="antwerpen",
+        )
+        real = _KboInfo(
+            kbo="0400000001",
+            name="Acme NV",
+            name_norm=_normalize_for_match("Acme NV"),
+            postal_code="2000",
+            city="antwerpen",
+        )
+        postal_index = {"2000": [real]}
+        city_index = {"antwerpen": [real]}
+        real_name_norms = [real.name_norm]
+        matches = _run_matching(
+            [placeholder], [real], postal_index, city_index, real_name_norms, 80.0
+        )
+        assert len(matches) == 1
+        assert matches[0].placeholder_kbo == "9000000001"
+        assert matches[0].real_kbo == "0400000001"
+
+    def test_skips_placeholder_with_empty_norm(self) -> None:
+        placeholder = _KboInfo(kbo="9000000001", name="", name_norm="", postal_code="", city="")
+        matches = _run_matching([placeholder], [], {}, {}, [], 80.0)
+        assert matches == []
+
+    def test_no_match_below_threshold(self) -> None:
+        placeholder = _KboInfo(
+            kbo="9000000001",
+            name="Completely Different Name",
+            name_norm=_normalize_for_match("Completely Different Name"),
+            postal_code="",
+            city="",
+        )
+        real = _KboInfo(
+            kbo="0400000001",
+            name="Nothing Like This",
+            name_norm=_normalize_for_match("Nothing Like This"),
+            postal_code="",
+            city="",
+        )
+        matches = _run_matching([placeholder], [real], {}, {}, [real.name_norm], 80.0)
+        assert matches == []
+
+
+class TestConsolidate:
+    async def test_returns_empty_when_no_placeholders(self) -> None:
+        pool = _make_consolidate_pool(
+            [],  # placeholder names
+            [],  # placeholder addrs
+            [{"kbo_number": "0400000001", "name": "Acme NV"}],  # real names
+            [{"kbo_number": "0400000001", "postal_code": "2000", "city": "antwerpen"}],
+        )
+        matches = await consolidate(pool)
+        assert matches == []
+
+    async def test_returns_empty_when_no_reals(self) -> None:
+        pool = _make_consolidate_pool(
+            [{"kbo_number": "9000000001", "name": "Acme NV"}],
+            [{"kbo_number": "9000000001", "postal_code": "2000", "city": "antwerpen"}],
+            [],  # real names
+            [],  # real addrs
+        )
+        matches = await consolidate(pool)
+        assert matches == []
+
+    async def test_matches_and_re_emits_observations(self) -> None:
+        now = datetime.now(tz=UTC)
+        pool = _make_consolidate_pool(
+            [{"kbo_number": "9000000001", "name": "Acme NV"}],
+            [{"kbo_number": "9000000001", "postal_code": "2000", "city": "antwerpen"}],
+            [{"kbo_number": "0400000001", "name": "Acme NV"}],
+            [{"kbo_number": "0400000001", "postal_code": "2000", "city": "antwerpen"}],
+            # obs rows for the match
+            [
+                {
+                    "field": "name",
+                    "value": {"text": "Acme NV"},
+                    "raw_value": None,
+                    "source": "goudengids",
+                    "source_url": None,
+                    "observed_at": now,
+                    "confidence": 0.80,
+                }
+            ],
+        )
+        # insert_many needs the acquire/transaction path to work
+        matches = await consolidate(pool)
+        assert len(matches) == 1
+        assert matches[0].placeholder_kbo == "9000000001"
+        assert matches[0].real_kbo == "0400000001"
+
+
+# ── helpers shared by new tests ───────────────────────────────────────────────
+
+
+def _make_consolidate_pool(
+    placeholder_names: list[dict[str, str]] | None = None,
+    placeholder_addrs: list[dict[str, str]] | None = None,
+    real_names: list[dict[str, str]] | None = None,
+    real_addrs: list[dict[str, str]] | None = None,
+    obs_rows: list[dict[str, object]] | None = None,
+    state_rows: list[dict[str, object]] | None = None,
+) -> AsyncMock:
+    pool = AsyncMock()
+    pool.execute.return_value = None
+
+    tx_cm = MagicMock()
+    tx_cm.__aenter__ = AsyncMock(return_value=None)
+    tx_cm.__aexit__ = AsyncMock(return_value=False)
+
+    conn = MagicMock()
+    conn.fetchrow = AsyncMock(return_value={"id": 1})
+    conn.transaction = MagicMock(return_value=tx_cm)
+
+    acquire_cm = MagicMock()
+    acquire_cm.__aenter__ = AsyncMock(return_value=conn)
+    acquire_cm.__aexit__ = AsyncMock(return_value=False)
+    pool.acquire = MagicMock(return_value=acquire_cm)
+
+    fetch_sequence = [
+        placeholder_names or [],
+        placeholder_addrs or [],
+        real_names or [],
+        real_addrs or [],
+        # consolidate() then reads consolidation_state to skip placeholders already
+        # processed for this snapshot. An empty table means "process everything".
+        state_rows or [],
+    ]
+    if obs_rows is not None:
+        fetch_sequence.append(obs_rows)
+
+    pool.fetch = AsyncMock(side_effect=fetch_sequence)
+    pool.fetchrow.return_value = None  # start_run uses execute, not fetchrow
+    return pool
 
 
 def _info(kbo: str, name: str, postal: str = "", city: str = "") -> _KboInfo:

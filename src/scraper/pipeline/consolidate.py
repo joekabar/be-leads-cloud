@@ -6,7 +6,7 @@ import asyncio
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import structlog
 from rapidfuzz import fuzz
@@ -18,6 +18,9 @@ from scraper.db.repositories.runs import RunsRepo
 from scraper.sources.ddg_brave.classifier import normalize_name
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from datetime import date
+
     import asyncpg
 
 logger = structlog.get_logger()
@@ -74,6 +77,56 @@ _SQL_REAL_ADDRS = (
     "value->>'city' AS city FROM companies_current "
     "WHERE field = 'address' AND kbo_number NOT LIKE '9%'"
 )
+
+
+async def _current_snapshot_date(pool: asyncpg.Pool) -> date | None:
+    """Return the newest staged KBO snapshot, or None when nothing is staged.
+
+    Identifies the real-KBO population a match attempt was made against, so an unmatched
+    placeholder is retried exactly once per new monthly snapshot rather than every run.
+    """
+    row = await pool.fetchrow("SELECT max(snapshot_date) AS d FROM kbo_stage_enterprise")
+    return row["d"] if row else None
+
+
+def select_placeholders_to_process(
+    placeholder_kbos: list[str],
+    state_rows: Sequence[Mapping[str, Any]],
+    current_snapshot: date | None,
+    *,
+    force: bool = False,
+) -> list[str]:
+    """Return the placeholders that still need matching, in the given order.
+
+    Consolidation is incremental. A placeholder already **matched** is never reprocessed:
+    its observations were re-emitted under the real KBO on that run, and doing it again
+    just duplicates them in an append-only table. A placeholder processed and **not**
+    matched is retried only once a newer KBO snapshot has been staged, since only new
+    real KBOs can turn a previous non-match into a match — retrying against an unchanged
+    population is the expensive name-only pass done for nothing.
+
+    *force* reprocesses everything, for a deliberate full re-consolidation.
+    """
+    if force:
+        return list(placeholder_kbos)
+
+    seen: dict[str, tuple[str | None, date | None]] = {
+        str(r["placeholder_kbo"]): (r["real_kbo"], r["snapshot_date"]) for r in state_rows
+    }
+
+    out: list[str] = []
+    for kbo in placeholder_kbos:
+        entry = seen.get(kbo)
+        if entry is None:
+            out.append(kbo)  # never seen
+            continue
+        real_kbo, done_snapshot = entry
+        if real_kbo is not None:
+            continue  # already matched and re-emitted
+        # Unmatched: retry only if the real-KBO population may have grown.
+        if done_snapshot is None or current_snapshot is None or done_snapshot < current_snapshot:
+            out.append(kbo)
+    return out
 
 
 async def _gather_kbo_infos(pool: asyncpg.Pool, is_placeholder: bool) -> list[_KboInfo]:
@@ -240,18 +293,24 @@ async def consolidate(
     pool: asyncpg.Pool,
     *,
     name_match_threshold: float = 80.0,
+    force: bool = False,
 ) -> list[ConsolidationMatch]:
     """Match placeholder KBOs to real KBOs and re-emit observations under the real KBO.
 
     Placeholder observations are NOT deleted (append-only invariant). New observations
     are inserted under the real KBO with confidence * 0.9 (inference penalty).
+
+    Incremental: only placeholders not yet processed for the current KBO snapshot are
+    matched, tracked in ``consolidation_state``. Re-matching everything each run cost
+    ~40 min and re-inserted the same ~43k observations every time. Pass *force* to
+    reprocess the whole population.
     """
     runs_repo = RunsRepo(pool)
     obs_repo = ObservationsRepo(pool)
     run_id = await runs_repo.start_run(source="kbo_dump")  # reuse valid source name
     snapshot_at = datetime.now(tz=UTC)
     log = logger.bind(run_id=str(run_id), source="consolidation")
-    log.info("consolidation_started")
+    log.info("consolidation_started", force=force)
 
     placeholders = await _gather_kbo_infos(pool, is_placeholder=True)
     reals = await _gather_kbo_infos(pool, is_placeholder=False)
@@ -261,7 +320,31 @@ async def consolidate(
         await runs_repo.finish_run(run_id, jobs_done=0)
         return []
 
-    log.info("consolidation_matching", placeholders=len(placeholders), reals=len(reals))
+    # Narrow to placeholders that still need work for this snapshot.
+    current_snapshot = await _current_snapshot_date(pool)
+    state_rows = await pool.fetch(
+        "SELECT placeholder_kbo, real_kbo, snapshot_date FROM consolidation_state"
+    )
+    todo = set(
+        select_placeholders_to_process(
+            [p.kbo for p in placeholders], state_rows, current_snapshot, force=force
+        )
+    )
+    skipped = len(placeholders) - len(todo)
+    placeholders = [p for p in placeholders if p.kbo in todo]
+
+    if not placeholders:
+        log.info("consolidation_up_to_date", skipped=skipped, snapshot=str(current_snapshot))
+        await runs_repo.finish_run(run_id, jobs_done=0)
+        return []
+
+    log.info(
+        "consolidation_matching",
+        placeholders=len(placeholders),
+        skipped=skipped,
+        reals=len(reals),
+        snapshot=str(current_snapshot),
+    )
 
     # Pre-build lookup indexes once — O(1) bucket access per placeholder instead of O(N) scans.
     postal_index: dict[str, list[_KboInfo]] = {}
@@ -317,10 +400,39 @@ async def consolidate(
     if all_new_obs:
         await obs_repo.insert_many(all_new_obs)
 
+    # Record every placeholder we processed — matched or not — so the next run skips it.
+    # Without this the same population is re-matched and re-emitted on every run.
+    matched_by_kbo = {m.placeholder_kbo: m for m in matches}
+    await pool.executemany(
+        """
+        INSERT INTO consolidation_state
+            (placeholder_kbo, real_kbo, score, matched_on, snapshot_date, processed_at)
+        VALUES ($1, $2, $3, $4, $5, NOW())
+        ON CONFLICT (placeholder_kbo) DO UPDATE SET
+            real_kbo      = EXCLUDED.real_kbo,
+            score         = EXCLUDED.score,
+            matched_on    = EXCLUDED.matched_on,
+            snapshot_date = EXCLUDED.snapshot_date,
+            processed_at  = EXCLUDED.processed_at
+        """,
+        [
+            (
+                p.kbo,
+                matched_by_kbo[p.kbo].real_kbo if p.kbo in matched_by_kbo else None,
+                matched_by_kbo[p.kbo].score if p.kbo in matched_by_kbo else None,
+                matched_by_kbo[p.kbo].matched_on if p.kbo in matched_by_kbo else None,
+                current_snapshot,
+            )
+            for p in placeholders
+        ],
+    )
+
     await runs_repo.finish_run(run_id, jobs_done=len(matches))
     log.info(
         "consolidation_done",
         matches=len(matches),
+        processed=len(placeholders),
+        skipped=skipped,
         observations_re_emitted=len(all_new_obs),
     )
     return matches

@@ -82,7 +82,13 @@ async def pg_pool(test_db_dsn: str) -> AsyncGenerator[asyncpg.Pool, None]:  # ty
 
 @pytest.fixture()
 async def clean_pool(pg_pool: asyncpg.Pool) -> AsyncGenerator[asyncpg.Pool, None]:  # type: ignore[type-arg]
-    """pg_pool with all data tables truncated before each test."""
+    """pg_pool with all data tables truncated before each test.
+
+    consolidation_state must be included: it makes the consolidation pass incremental,
+    so a placeholder left behind by an earlier test would be skipped as "already
+    processed" and that test would silently see zero matches.
+    """
     await pg_pool.execute("TRUNCATE observations, jobs, run_log RESTART IDENTITY CASCADE")
     await pg_pool.execute("TRUNCATE prospect_scores")
+    await pg_pool.execute("TRUNCATE consolidation_state")
     yield pg_pool
