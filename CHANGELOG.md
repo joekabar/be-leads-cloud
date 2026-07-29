@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — city_slug was not case-normalised, forking one city into two histories
+
+- `run_log` holds both `oostende` (31 runs) and `Oostende` (11 runs) for the same city:
+  `build_batch_config` stripped the value but never lower-cased it. Everything that matches
+  on `city_slug` does so case-sensitively, so the two spellings behaved as different cities.
+- Impact: `batch.py`'s Phase C2 scope query missed runs recorded under the other casing, so
+  those companies never got search validation; and the goudengids `skip_recent` dedup keyed
+  on the same column, so a differently-cased run looked new and got re-scraped — at
+  concurrency 1 against a WAF, the most expensive mistake the pipeline can make.
+- `get_postal_codes` already lower-cased its argument, which is why city resolution kept
+  working and hid the split.
+- Fixed at the entry point (`city.strip().lower()`); the Phase C2 query now compares
+  `lower(city_slug) = lower($1)` so the already-split historical rows are matched too.
+
+
 ### Added — targeted lead exports (city / required field / revenue ceiling)
 
 - `be-leads-export` could only export **everything** (1.96M KBOs) or a single `--run-id`,

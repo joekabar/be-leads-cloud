@@ -77,7 +77,10 @@ def build_batch_config(
         raise ValueError(str(exc)) from exc
     resolved = resolve_sectors(sectors, all_sectors=all_sectors, allow_empty=bool(extra_nace))
     return BatchConfig(
-        city=city.strip(),
+        # Lower-cased, not just stripped: run_log.city_slug is matched case-sensitively
+        # by the Phase C2 scope query and the goudengids skip_recent dedup, so a
+        # capitalised value silently forks the same city into two histories.
+        city=city.strip().lower(),
         sectors=resolved,
         extra_nace=extra_nace,
         lang=lang,

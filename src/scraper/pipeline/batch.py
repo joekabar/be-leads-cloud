@@ -617,8 +617,11 @@ async def run_batch(
             report.goudengids_per_sector[sector_slug] = obs_count
             # Collect run_ids for Phase C2 scope.
             run_ids_now = await pool.fetch(
-                "SELECT run_id FROM run_log WHERE source = 'goudengids' AND city_slug = $1 "
-                "AND started_at >= $2",
+                # lower() on both sides: historical rows exist under both 'oostende'
+                # and 'Oostende', and a case-sensitive match drops half of them from
+                # the Phase C2 search-validation scope.
+                "SELECT run_id FROM run_log WHERE source = 'goudengids' "
+                "AND lower(city_slug) = lower($1) AND started_at >= $2",
                 config.city,
                 started_at,
             )
