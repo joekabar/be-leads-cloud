@@ -15,6 +15,7 @@ from scraper.db.repositories.observations import ObservationsRepo
 from scraper.db.repositories.runs import RunsRepo
 from scraper.lib.data_paths import SECTORS_TOML as _SECTORS_TOML
 from scraper.lib.errors import BlockedError
+from scraper.pipeline.city_map import get_postal_codes
 from scraper.sources.goudengids.parser import parse_listing_page
 from scraper.sources.goudengids.transformer import card_to_observations, make_placeholder_kbo
 
@@ -47,6 +48,9 @@ class GoudengidsReport:
     city: str
     pages_scanned: int = 0
     cards_found: int = 0
+    #: Cards goudengids returned that are outside the requested city (its nationwide
+    #: fallback). Counted rather than silently dropped so thin runs are explainable.
+    cards_out_of_city: int = 0
     cards_with_phone: int = 0
     cards_with_website: int = 0
     observations_inserted: int = 0
@@ -64,6 +68,24 @@ async def _recent_placeholder_kbos(
         cutoff,
     )
     return {r["kbo_number"] for r in rows}
+
+
+def card_in_city(postal_code: str | None, allowed_postcodes: set[str]) -> bool:
+    """Return True when a listing card belongs to the city that was searched for.
+
+    goudengids falls back to nationwide results when a sector has few matches in the
+    requested city, so the URL containing the city is not a guarantee. Filtering on the
+    card's own postal code is what actually scopes the run.
+
+    An empty *allowed_postcodes* means the city is not in the postcode map — filtering
+    is then impossible and everything is kept, rather than discarding the whole run.
+    A card with no postal code cannot be verified and is dropped.
+    """
+    if not allowed_postcodes:
+        return True
+    if postal_code is None or not postal_code.strip():
+        return False
+    return postal_code.strip() in allowed_postcodes
 
 
 async def ingest_sector_city(
@@ -115,6 +137,12 @@ async def ingest_sector_city(
         cutoff = snapshot_at - timedelta(hours=skip_recent_hours)
         recent_kbos = await _recent_placeholder_kbos(pool, cutoff)
 
+    # Scope results to the requested city. goudengids widens to nationwide results
+    # when a sector is thin locally, so the card's own postcode is the real filter.
+    allowed_postcodes = set(get_postal_codes(city_slug) or [])
+    if not allowed_postcodes:
+        log.warning("goudengids_city_not_in_postcode_map", city=city_slug)
+
     buffer: list[Observation] = []
     seen_placeholders: set[str] = set()
 
@@ -139,6 +167,10 @@ async def ingest_sector_city(
                 report.cards_found += len(cards)
 
                 for card in cards:
+                    if not card_in_city(card.address_postal_code, allowed_postcodes):
+                        report.cards_out_of_city += 1
+                        continue
+
                     placeholder = make_placeholder_kbo(card.name, card.address_postal_code)
 
                     if placeholder in recent_kbos:

@@ -47,7 +47,13 @@ async def test_ingest_three_pages_stops_on_empty(fresh_pool) -> None:
     assert isinstance(report, GoudengidsReport)
     assert report.pages_scanned == 3
     assert report.cards_found == 18  # 12 + 6
-    assert report.observations_inserted >= 60  # at least 3-4 obs per card x 18 cards
+
+    # Page 2 is the *Brugge* bakers fixture, reused here only to supply 6 more cards.
+    # Those companies are not in Antwerpen, so the city filter drops them — which is
+    # exactly what the filter exists for. Only the 12 Antwerpen cards are ingested.
+    assert report.cards_out_of_city == 6
+    assert report.placeholders_created == 12
+    assert report.observations_inserted >= 36  # >= 3 obs per kept card x 12 cards
 
 
 @pytest.mark.asyncio

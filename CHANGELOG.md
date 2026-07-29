@@ -50,6 +50,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   empty) and re-emits duplicates one last time; every run after that is incremental.
   Existing duplicate observations from previous runs are left in place — nothing is deleted.
 
+### Fixed — goudengids ignored the requested city
+
+- goudengids serves a **nationwide** result list when a sector is thin locally, and those cards
+  were stored under a run tagged with the requested city — silently mislabelling out-of-area
+  leads. Every card carries a postal code even when its city name is blank, so
+  `ingester.card_in_city()` now scopes results by postcode. Out-of-area cards are counted in
+  the new `GoudengidsReport.cards_out_of_city` (and the CLI JSON) rather than dropped
+  invisibly, so a thin run is explainable. An unmapped city disables filtering rather than
+  discarding the whole run.
+  Verified live: `kappers x antwerpen` keeps 34 of 40 cards (6 dropped; every kept card in an
+  Antwerp postcode 2000-2610), while `tuinaanleggers x oostende` drops all 16 — goudengids has
+  no Oostende results for that sector at all.
+- **`pipeline/city_map.py`** — `get_postal_codes` now falls back to `lib/postcodes.toml`.
+  The two city sources had drifted: the UI picker lists 16 cities from postcodes.toml while
+  city_map.toml has 15, so Oostende resolved to `None` and silently disabled city filtering
+  (observed live as `goudengids_city_not_in_postcode_map`). Curated city_map entries still win.
+
 ### Fixed — business_activity was 0.0 for every company in the database
 
 - `scoring/prospect.py::_business_activity` read `status["text"]`, but both kbo_dump producers

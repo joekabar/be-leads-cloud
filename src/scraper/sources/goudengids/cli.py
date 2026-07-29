@@ -109,6 +109,7 @@ async def _run(
         "city": report.city,
         "pages_scanned": report.pages_scanned,
         "cards_found": report.cards_found,
+        "cards_out_of_city": report.cards_out_of_city,
         "cards_with_phone": report.cards_with_phone,
         "cards_with_website": report.cards_with_website,
         "observations_inserted": report.observations_inserted,
