@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — targeted lead exports (city / required field / revenue ceiling)
+
+- `be-leads-export` could only export **everything** (1.96M KBOs) or a single `--run-id`,
+  neither of which answers "small businesses in this city that have a phone" — the normal
+  shape of a lead request. New `--city SLUG` (repeatable), `--require-field FIELD`
+  (repeatable, all must match) and `--max-revenue N`.
+- Filtering happens in the selection SQL (`build_selection_sql`), not in Python after the
+  fetch, because the unfiltered set is 1.96M KBOs.
+- `--max-revenue` excludes only companies with a **published** revenue above the ceiling.
+  Companies with no revenue on file are kept: micro enterprises file abbreviated accounts
+  and legitimately publish no turnover, so dropping them would remove most of a
+  small-business list.
+- An unknown `--city` slug raises rather than resolving to "no postcodes", which would have
+  silently widened the export from one city to the whole country.
+- **`scripts/daily_export.ps1`** — date-stamped export driven by a Windows Scheduled Task,
+  with logging and retention pruning.
+
 ### Fixed — status was blank everywhere, silently disabling the active-company filter
 
 - `ui/data.py::_aggregate_row` read `status["text"]`, but both kbo_dump producers write

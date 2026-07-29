@@ -8,13 +8,17 @@ import csv
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import asyncpg
 
 from scraper.db.repositories.observations import _row_to_obs
+from scraper.pipeline.city_map import get_postal_codes
 from scraper.ui.data import _aggregate_row
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 _COLUMNS = [
     "kbo_number",
@@ -55,12 +59,94 @@ def _fmt(v: Any) -> str:
     return str(v)
 
 
+def resolve_city_postcodes(cities: Sequence[str]) -> list[str]:
+    """Map city slugs to the union of their postal codes, order-preserving.
+
+    Raises ``ValueError`` on an unknown slug rather than returning an empty list: a
+    silent miss would widen the export to the whole country instead of narrowing it.
+    """
+    out: list[str] = []
+    for city in cities:
+        codes = get_postal_codes(city)
+        if not codes:
+            raise ValueError(f"Unknown city slug: {city!r}")
+        for code in codes:
+            if code not in out:
+                out.append(code)
+    return out
+
+
+def build_selection_sql(
+    *,
+    run_id: UUID | str | None = None,
+    postcodes: Sequence[str] | None = None,
+    require_fields: Sequence[str] | None = None,
+    max_revenue: float | None = None,
+) -> tuple[str, list[Any]]:
+    """Build the SQL that picks which KBOs to export, plus its parameters.
+
+    Filtering happens here, in the selection query, rather than in Python after the
+    fetch: unfiltered, ``companies_current`` holds ~1.96M KBOs.
+
+    *max_revenue* excludes only companies with a *published* revenue above the ceiling.
+    Companies with no revenue on file are kept — micro enterprises file abbreviated
+    accounts and legitimately publish no turnover, so dropping them would remove most
+    of a small-business list.
+    """
+    if run_id is not None:
+        return "SELECT DISTINCT kbo_number FROM observations WHERE run_id = $1", [run_id]
+
+    if postcodes is not None and not postcodes:
+        raise ValueError("postcodes filter is empty — refusing to select every company")
+
+    params: list[Any] = []
+    where: list[str] = []
+
+    # Only integer placeholder indices and list lengths are interpolated below; every
+    # caller-supplied value travels as a bound $n parameter. Hence the S608 suppressions.
+    if postcodes:
+        params.append(list(postcodes))
+        # postal_code lives inside the address JSONB, not in its own column.
+        where.append(
+            f"c.field = 'address' AND c.value->>'postal_code' = ANY(${len(params)}::text[])"
+        )
+
+    if require_fields:
+        params.append(list(require_fields))
+        where.append(
+            "(SELECT count(DISTINCT f.field) FROM companies_current f "  # noqa: S608
+            f"WHERE f.kbo_number = c.kbo_number AND f.field = ANY(${len(params)}::text[])) "
+            f"= {len(require_fields)}"
+        )
+
+    if max_revenue is not None:
+        params.append(max_revenue)
+        where.append(
+            "NOT EXISTS (SELECT 1 FROM companies_current r "  # noqa: S608
+            "WHERE r.kbo_number = c.kbo_number "
+            "AND r.field ~ '^revenue_[0-9]{4}$' "
+            f"AND (r.value->>'value')::numeric > ${len(params)})"
+        )
+
+    if not where:
+        return "SELECT DISTINCT kbo_number FROM companies_current", []
+
+    return (
+        "SELECT DISTINCT c.kbo_number FROM companies_current c WHERE "  # noqa: S608
+        + " AND ".join(where),
+        params,
+    )
+
+
 async def export_csv(
     pool: asyncpg.Pool,
     out_path: Path,
     *,
     run_id: UUID | None = None,
     chunk_size: int = 0,
+    postcodes: Sequence[str] | None = None,
+    require_fields: Sequence[str] | None = None,
+    max_revenue: float | None = None,
 ) -> int | list[Path]:
     """Write a ranked CSV of all KBOs in companies_current joined with prospect_scores.
 
@@ -80,13 +166,13 @@ async def export_csv(
 
     now = datetime.now(tz=UTC)
 
-    if run_id is not None:
-        kbo_rows = await pool.fetch(
-            "SELECT DISTINCT kbo_number FROM observations WHERE run_id = $1",
-            run_id,
-        )
-    else:
-        kbo_rows = await pool.fetch("SELECT DISTINCT kbo_number FROM companies_current")
+    select_sql, select_params = build_selection_sql(
+        run_id=run_id,
+        postcodes=postcodes,
+        require_fields=require_fields,
+        max_revenue=max_revenue,
+    )
+    kbo_rows = await pool.fetch(select_sql, *select_params)
 
     kbos = [str(r["kbo_number"]).strip() for r in kbo_rows]
     if not kbos:
@@ -235,6 +321,29 @@ def cli_main() -> None:  # pragma: no cover
         default=0,
         help="Split output into chunk files of this many rows (0 = single file, default)",
     )
+    parser.add_argument(
+        "--city",
+        action="append",
+        default=None,
+        metavar="SLUG",
+        help="Restrict to a city by slug, e.g. oostende. Repeatable.",
+    )
+    parser.add_argument(
+        "--require-field",
+        action="append",
+        default=None,
+        metavar="FIELD",
+        help="Only export companies having this field, e.g. phone. Repeatable (all must match).",
+    )
+    parser.add_argument(
+        "--max-revenue",
+        type=float,
+        default=None,
+        help=(
+            "Exclude companies whose published revenue exceeds this. Companies with no "
+            "revenue on file are KEPT (micro enterprises file abbreviated accounts)."
+        ),
+    )
     args = parser.parse_args()
 
     chunk_size: int = args.chunk_size
@@ -255,6 +364,12 @@ def cli_main() -> None:  # pragma: no cover
     if args.run_id:
         run_id = UUID(args.run_id)
 
+    try:
+        postcodes = resolve_city_postcodes(args.city) if args.city else None
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(2)
+
     async def _run() -> None:
         async def _init_jsonb(conn: asyncpg.Connection) -> None:
             await conn.set_type_codec(
@@ -268,7 +383,15 @@ def cli_main() -> None:  # pragma: no cover
         if pool is None:
             raise RuntimeError("asyncpg.create_pool returned None")
         try:
-            result = await export_csv(pool, out_path, run_id=run_id, chunk_size=chunk_size)
+            result = await export_csv(
+                pool,
+                out_path,
+                run_id=run_id,
+                chunk_size=chunk_size,
+                postcodes=postcodes,
+                require_fields=args.require_field,
+                max_revenue=args.max_revenue,
+            )
             if isinstance(result, list):
                 total = 0
                 for p in result:
