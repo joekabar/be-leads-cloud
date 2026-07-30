@@ -21,7 +21,10 @@
 param(
     [string] $City   = 'oostende',
     [int]    $Limit  = 15,
-    [string] $LogDir = ''
+    [string] $LogDir = '',
+    # Run the database preflight and stop. Lets the dependency be verified without
+    # spending an hour of WAF budget on a real scrape.
+    [switch] $CheckOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,6 +47,108 @@ function Write-State([string] $msg) {
 }
 
 Write-State "START city=$City limit=$Limit"
+
+# ---------------------------------------------------------------------------
+# Database preflight.
+#
+# Every step below needs Postgres, which runs in Docker. Docker Desktop does not
+# start at login on this host, so a reboot leaves the whole night dead: the
+# 2026-07-30 session found the database down with nothing to say why. Bring it up
+# here rather than discovering it three commands later.
+# ---------------------------------------------------------------------------
+
+function Test-DbPort {
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $client.Connect('127.0.0.1', 5432)
+        return $client.Connected
+    } catch {
+        return $false
+    } finally {
+        $client.Dispose()
+    }
+}
+
+function Test-DockerDaemon {
+    # stderr is noise here; only the exit code matters.
+    & docker info --format '{{.ServerVersion}}' *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Wait-For([scriptblock] $Condition, [int] $TimeoutSeconds, [int] $IntervalSeconds = 5) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if (& $Condition) { return $true }
+        Start-Sleep -Seconds $IntervalSeconds
+    }
+    return $false
+}
+
+function Initialize-Database {
+    if (Test-DbPort) {
+        # Something is already listening. Any deeper problem will surface as a clear
+        # error from the CLI that follows, which is a better message than a probe here.
+        return $true
+    }
+
+    Write-State 'PREFLIGHT database unreachable on 127.0.0.1:5432, starting it'
+
+    if (-not (Test-DockerDaemon)) {
+        $desktop = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
+        if (-not (Test-Path $desktop)) {
+            Write-State "PREFLIGHT FAILED Docker daemon is down and $desktop is missing"
+            return $false
+        }
+        Write-State 'PREFLIGHT starting Docker Desktop'
+        Start-Process $desktop
+        if (-not (Wait-For { Test-DockerDaemon } 300 10)) {
+            Write-State 'PREFLIGHT FAILED Docker daemon did not come up within 300s'
+            return $false
+        }
+    }
+
+    # Idempotent: a container that is already up is left alone.
+    & docker compose up -d pg *>> $log
+    if ($LASTEXITCODE -ne 0) {
+        Write-State "PREFLIGHT FAILED docker compose up -d pg exit=$LASTEXITCODE"
+        return $false
+    }
+
+    # An open port is not readiness: after a cold start Postgres binds 5432 while still
+    # recovering and rejects connections for the better part of a minute.
+    $ready = Wait-For {
+        & docker compose exec -T pg pg_isready -U leads *> $null
+        return ($LASTEXITCODE -eq 0)
+    } 300 5
+
+    if (-not $ready) {
+        Write-State 'PREFLIGHT FAILED Postgres did not accept connections within 300s'
+        return $false
+    }
+
+    Write-State 'PREFLIGHT database is up'
+    return $true
+}
+
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    $dbOk = Initialize-Database
+} finally {
+    $ErrorActionPreference = $prevEap
+}
+
+if (-not $dbOk) {
+    Write-State 'END exit=3 reason=database-unavailable'
+    Write-Output 'Database unavailable, nothing scraped. See the log.'
+    exit 3
+}
+
+if ($CheckOnly) {
+    Write-State 'END exit=0 reason=check-only'
+    Write-Output 'Preflight OK: database reachable.'
+    exit 0
+}
 
 # Which sectors still need work?
 $raw = & uv run be-leads-next-sectors --city $City --limit $Limit 2>&1

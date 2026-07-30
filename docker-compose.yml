@@ -1,6 +1,10 @@
 services:
   pg:
     image: postgres:16
+    # The nightly scrape needs this container awake at 02:30 without anyone present.
+    # Without a restart policy it stayed down after a Docker or host restart, and the
+    # 2026-07-30 session found Postgres unreachable with no indication why.
+    restart: unless-stopped
     environment:
       POSTGRES_USER: leads
       POSTGRES_PASSWORD: leads

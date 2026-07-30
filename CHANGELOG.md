@@ -30,6 +30,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.47 s, total 1.9 min, no timeout and no malformed JSONB. The production exception remains
   unidentified precisely because it was suppressed; this change is what will name it.
 
+### Added — the nightly scrape brings its own database up
+
+- Every step of the nightly run needs Postgres, which runs in Docker — and Docker Desktop is
+  configured **not** to start at login on the scrape host (`AutoStart = False`, startup entry
+  disabled). A reboot therefore killed the whole night, which is exactly how the 2026-07-30
+  session found the database unreachable.
+- `docker-compose.yml` gives `pg` `restart: unless-stopped`, so the container returns whenever
+  Docker runs instead of staying down after a host or daemon restart.
+- `nightly_scrape.ps1` now preflights the database before doing anything else: probe
+  127.0.0.1:5432, and only if it is closed start Docker Desktop (waiting up to 300 s for the
+  daemon), `docker compose up -d pg`, then wait for `pg_isready`. An open port is not treated
+  as readiness — after a cold start Postgres binds 5432 while still recovering and rejects
+  connections for the better part of a minute.
+- Failure is explicit: `END exit=3 reason=database-unavailable` in the state log and exit code
+  3, rather than three commands' worth of confusing asyncpg tracebacks.
+- New `-CheckOnly` switch runs the preflight and stops, so the dependency can be verified
+  without spending an hour of WAF budget. Verified both ways: with the database already up the
+  check returns in under a second; with the container stopped it restarted it and reported
+  ready in 9 s.
+
 ### Fixed — sectors goudengids cannot serve occupied a nightly slot forever
 
 - `completed_sectors()` counts a sector done only when `jobs_done > 0`. That is correct for a
