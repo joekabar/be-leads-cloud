@@ -832,6 +832,161 @@ class TestRunBatch:
         assert "ddg_brave" in report.sources_failed
 
 
+class TestPhaseDEFReportFailures:
+    """Phases D/E/F must report failure the way phases A/C/G already do.
+
+    The 2026-07-30 nightly run logged `phase_f_started`, no `phase_f_finished`, and
+    `prospect_scores=0` in an otherwise clean `batch_finished` — because the phase was
+    wrapped in `with suppress(Exception)`. `prospect_scores.computed_at` had been stuck at
+    2026-07-27 for three nights and nothing said so. Failure here stays non-fatal (a broken
+    scrape must not cost the night's consolidation), but it must never again be silent.
+    """
+
+    def _make_pool(self) -> AsyncMock:
+        pool = AsyncMock()
+        pool.execute.return_value = None
+        pool.fetch.return_value = []
+        pool.fetchrow.return_value = {"n": 0}
+        return pool
+
+    def _config(self) -> BatchConfig:
+        return BatchConfig(
+            city="antwerpen",
+            sectors=["elektriciens"],
+            snapshot_date=date(2024, 3, 1),
+            do_kbo_dump=False,
+            do_goudengids=False,
+            do_kbopub=False,
+            do_nbb=False,
+            do_website=False,
+            do_search=False,
+        )
+
+    async def test_prospect_scoring_failure_recorded(self) -> None:
+        pool = self._make_pool()
+
+        with (
+            patch("scraper.pipeline.batch.consolidate", new=AsyncMock(return_value=[])),
+            patch(
+                "scraper.pipeline.batch.refresh_prospect_scores",
+                new=AsyncMock(side_effect=RuntimeError("scoring exploded")),
+            ),
+        ):
+            report = await run_batch(self._config(), pool, MagicMock())
+
+        assert "prospect_scores" in report.sources_failed
+        assert "scoring exploded" in report.sources_failed["prospect_scores"]
+
+    async def test_batch_still_finishes_when_scoring_fails(self) -> None:
+        """Non-fatal: the report is still completed and returned."""
+        pool = self._make_pool()
+
+        with (
+            patch("scraper.pipeline.batch.consolidate", new=AsyncMock(return_value=[])),
+            patch(
+                "scraper.pipeline.batch.refresh_prospect_scores",
+                new=AsyncMock(side_effect=RuntimeError("scoring exploded")),
+            ),
+        ):
+            report = await run_batch(self._config(), pool, MagicMock())
+
+        assert report.ended_at is not None
+        assert report.prospect_scores_computed == 0
+
+    async def test_memory_error_records_its_type(self) -> None:
+        """`str(MemoryError())` is empty — the type must be recorded or the entry says nothing.
+
+        MemoryError is the leading hypothesis for the production failure: Phase F holds
+        8.7M fetched rows plus ~2M dicts alongside Chromium.
+        """
+        pool = self._make_pool()
+
+        with (
+            patch("scraper.pipeline.batch.consolidate", new=AsyncMock(return_value=[])),
+            patch(
+                "scraper.pipeline.batch.refresh_prospect_scores",
+                new=AsyncMock(side_effect=MemoryError()),
+            ),
+        ):
+            report = await run_batch(self._config(), pool, MagicMock())
+
+        assert "MemoryError" in report.sources_failed["prospect_scores"]
+
+    async def test_consolidation_failure_recorded(self) -> None:
+        pool = self._make_pool()
+
+        with (
+            patch(
+                "scraper.pipeline.batch.consolidate",
+                new=AsyncMock(side_effect=RuntimeError("consolidation exploded")),
+            ),
+            patch("scraper.pipeline.batch.refresh_prospect_scores", new=AsyncMock(return_value=0)),
+        ):
+            report = await run_batch(self._config(), pool, MagicMock())
+
+        assert "consolidation exploded" in report.sources_failed["consolidation"]
+
+    async def test_matview_refresh_failures_recorded(self) -> None:
+        """Both refreshes report — the pre-consolidation one and Phase E's."""
+        pool = self._make_pool()
+
+        async def _execute(sql: str, *args: object, **kwargs: object) -> None:
+            # Fail only the matview refresh; other statements in the run are unrelated.
+            if "refresh_companies_current" in sql:
+                raise RuntimeError("matview exploded")
+
+        pool.execute = AsyncMock(side_effect=_execute)
+
+        with (
+            patch("scraper.pipeline.batch.consolidate", new=AsyncMock(return_value=[])),
+            patch("scraper.pipeline.batch.refresh_prospect_scores", new=AsyncMock(return_value=0)),
+        ):
+            report = await run_batch(self._config(), pool, MagicMock())
+
+        assert "matview exploded" in report.sources_failed["matview_refresh"]
+        assert "matview exploded" in report.sources_failed["matview_refresh_pre_consolidation"]
+
+    async def test_failed_steps_are_logged_as_errors(self) -> None:
+        pool = self._make_pool()
+        mock_log = MagicMock()
+
+        with (
+            patch("scraper.pipeline.batch.logger") as mock_logger,
+            patch("scraper.pipeline.batch.consolidate", new=AsyncMock(return_value=[])),
+            patch(
+                "scraper.pipeline.batch.refresh_prospect_scores",
+                new=AsyncMock(side_effect=RuntimeError("scoring exploded")),
+            ),
+        ):
+            mock_logger.bind.return_value = mock_log
+            await run_batch(self._config(), pool, MagicMock())
+
+        events = [c.args[0] for c in mock_log.error.call_args_list if c.args]
+        assert "phase_f_failed" in events
+
+    async def test_batch_finished_names_the_failed_steps(self) -> None:
+        """The summary line is what an operator reads; a partial run must not look clean."""
+        pool = self._make_pool()
+        mock_log = MagicMock()
+
+        with (
+            patch("scraper.pipeline.batch.logger") as mock_logger,
+            patch("scraper.pipeline.batch.consolidate", new=AsyncMock(return_value=[])),
+            patch(
+                "scraper.pipeline.batch.refresh_prospect_scores",
+                new=AsyncMock(side_effect=RuntimeError("scoring exploded")),
+            ),
+        ):
+            mock_logger.bind.return_value = mock_log
+            await run_batch(self._config(), pool, MagicMock())
+
+        finished = [
+            c for c in mock_log.info.call_args_list if c.args and c.args[0] == "batch_finished"
+        ]
+        assert len(finished) == 1
+        assert finished[0].kwargs["failed"] == ["prospect_scores"]
+
+
 class TestEmitPhaseA:
     def _make_pool(self) -> tuple[MagicMock, MagicMock]:
         conn = MagicMock()

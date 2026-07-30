@@ -17,7 +17,6 @@ import io
 import json
 import time
 import tomllib
-from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Literal
@@ -112,6 +111,16 @@ class BatchReport:
     prospect_scores_computed: int = 0
     duration_s: float = 0.0
     export_files: list[Path] = field(default_factory=list)
+
+
+def _describe(exc: BaseException) -> str:
+    """Render an exception as ``Type: message``, or bare ``Type`` when it has none.
+
+    ``str(MemoryError())`` is the empty string, so a message-only record would say nothing
+    at all about the most likely Phase F failure.
+    """
+    message = str(exc)
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
 
 
 def _load_goudengids_entries() -> dict[str, dict[str, object]]:
@@ -778,31 +787,50 @@ async def run_batch(
     # ── Phase D — single consolidation pass ────────────────────────────────────
     # consolidate() reads companies_current, and the per-sector refreshes are disabled,
     # so bring the view up to date exactly once here.
+    # These four steps stay non-fatal — a blocked scrape must not also cost the night's
+    # consolidation — but they must never be silent. They were wrapped in
+    # `with suppress(Exception)`, which discarded the only evidence of failure: on
+    # 2026-07-30 Phase F logged `phase_f_started`, no `phase_f_finished`, and
+    # `prospect_scores=0` inside an otherwise clean `batch_finished`, having been broken
+    # for three nights. Record the exception *type* as well as its message: a bare
+    # MemoryError stringifies to "".
     await progress.report("phase_d", "matview", message="refreshing companies_current")
-    with suppress(Exception):
+    try:
         await pool.execute("SELECT refresh_companies_current()")
+    except Exception as exc:
+        report.sources_failed["matview_refresh_pre_consolidation"] = _describe(exc)
+        log.error("phase_d_matview_failed", error=_describe(exc))
 
     await progress.report("phase_d", "consolidation", message="consolidating placeholder KBOs")
     log.info("phase_d_started")
-    with suppress(Exception):
+    try:
         matches = await consolidate(pool)
         report.placeholders_resolved = len(matches)
         log.info("phase_d_finished", matches=len(matches))
+    except Exception as exc:
+        report.sources_failed["consolidation"] = _describe(exc)
+        log.error("phase_d_failed", error=_describe(exc))
 
     # ── Phase E — single matview refresh ───────────────────────────────────────
     await progress.report("phase_e", "matview", message="refreshing companies_current")
     log.info("phase_e_started")
-    with suppress(Exception):
+    try:
         await pool.execute("SELECT refresh_companies_current()")
         log.info("phase_e_finished")
+    except Exception as exc:
+        report.sources_failed["matview_refresh"] = _describe(exc)
+        log.error("phase_e_failed", error=_describe(exc))
 
     # ── Phase F — single prospect scoring pass ─────────────────────────────────
     await progress.report("phase_f", "scoring", message="computing prospect scores")
     log.info("phase_f_started")
-    with suppress(Exception):
+    try:
         n = await refresh_prospect_scores(pool)
         report.prospect_scores_computed = n
         log.info("phase_f_finished", kbos=n)
+    except Exception as exc:
+        report.sources_failed["prospect_scores"] = _describe(exc)
+        log.error("phase_f_failed", error=_describe(exc))
 
     # ── Phase G — auto CSV export (if export_dir configured) ──────────────────
     if config.export_dir is not None:
@@ -837,5 +865,6 @@ async def run_batch(
         companies_in_view=report.companies_in_view,
         prospect_scores=report.prospect_scores_computed,
         duration_s=round(report.duration_s, 2),
+        failed=sorted(report.sources_failed),
     )
     return report

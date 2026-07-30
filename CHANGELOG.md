@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Phase D/E/F failures were discarded, hiding three nights of dead prospect scores
+
+- `batch.py` wrapped the matview refreshes, consolidation and prospect scoring in
+  `with suppress(Exception)`. The 2026-07-30 nightly run therefore logged `phase_f_started`,
+  **no** `phase_f_finished`, and `prospect_scores=0` inside an otherwise clean
+  `batch_finished` — after spending 7m19s on the phase. `max(prospect_scores.computed_at)`
+  had been stuck at **2026-07-27**: the scores that rank every export were three days stale
+  and nothing reported it.
+- Phases A, C1, C2 and G in the same file already used `try/except` →
+  `report.sources_failed[...]` + `log.error(...)`. D/E/F now do the same. Failure stays
+  non-fatal — a blocked scrape must not also cost the night's consolidation — but it is no
+  longer silent. Keys: `matview_refresh_pre_consolidation`, `consolidation`,
+  `matview_refresh`, `prospect_scores`.
+- Failures record the exception **type** as well as its message, via `_describe()`:
+  `str(MemoryError())` is the empty string, and MemoryError is the leading hypothesis for
+  the production failure (Phase F holds 8.7M fetched rows plus ~2M dicts alongside
+  Chromium). `batch_finished` now carries `failed=[...]` so a partial run cannot read as a
+  clean one.
+- Phase F is **not** broken in isolation: reproduced against the live DB it fetched
+  8,743,514 rows in 28.6 s, scored 1,959,773 KBOs, and upserted 392 batches — slowest batch
+  0.47 s, total 1.9 min, no timeout and no malformed JSONB. The production exception remains
+  unidentified precisely because it was suppressed; this change is what will name it.
+
 ### Fixed — scheduled exports silently wrote to the wrong drive location
 
 - Both scheduler scripts computed their output directory from `$PSScriptRoot` **in a
