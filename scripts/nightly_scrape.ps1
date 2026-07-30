@@ -69,8 +69,20 @@ foreach ($s in $sectors) { $argList += @('--sector', $s) }
 # Staging is already loaded, so spend the night on discovery rather than re-emitting KBO.
 $argList += @('--skip-kbo-dump')
 
-& uv @argList *>> $log
-$code = $LASTEXITCODE
+# Windows PowerShell 5.1 wraps every stderr line from a native exe in a NativeCommandError
+# record. Under $ErrorActionPreference = 'Stop' that record is terminating, so the script
+# died here and never reached the summary below: the 2026-07-30 run logged START and SCRAPE,
+# no END, and exited 1 after a batch that had in fact completed cleanly. structlog writes
+# all logging to stderr, so this fired on every run, not on failures only. Drop to
+# 'Continue' for the duration of the call and read the real exit code afterwards.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    & uv @argList *>> $log
+    $code = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $prevEap
+}
 
 $done    = @(Select-String -Path $log -Pattern 'goudengids_sector_done' -ErrorAction SilentlyContinue).Count
 $blocked = @(Select-String -Path $log -Pattern 'goudengids_imperva_block' -ErrorAction SilentlyContinue).Count

@@ -30,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.47 s, total 1.9 min, no timeout and no malformed JSONB. The production exception remains
   unidentified precisely because it was suppressed; this change is what will name it.
 
+### Fixed — nightly_scrape.ps1 exited 1 on successful runs and never wrote its summary
+
+- `& uv @argList *>> $log` ran under `$ErrorActionPreference = 'Stop'`. Windows PowerShell
+  5.1 wraps every stderr line from a native exe in a `NativeCommandError` record, which that
+  preference makes **terminating** — so the script died at the call and never reached the
+  lines that record the exit code, the sector/block counts, or the `END` marker.
+  `logs/nightly_scrape.log` shows `START` and `SCRAPE` for the 02:30 run but no `END`, while
+  the batch log shows a clean `batch_finished`; Task Scheduler recorded `LastTaskResult = 1`.
+- structlog writes all logging to stderr, so this fired on **every** run, not on failures
+  only — the script had never once written its summary.
+- The call is now bracketed by `$ErrorActionPreference = 'Continue'` restored in a `finally`.
+  Verified with a standalone harness: a child writing to stderr and exiting 7 now yields
+  `END exit=7` and propagates 7, where the old pattern wrote no `END` and exited 1.
+
 ### Fixed — scheduled exports silently wrote to the wrong drive location
 
 - Both scheduler scripts computed their output directory from `$PSScriptRoot` **in a
