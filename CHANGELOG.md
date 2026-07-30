@@ -30,6 +30,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.47 s, total 1.9 min, no timeout and no malformed JSONB. The production exception remains
   unidentified precisely because it was suppressed; this change is what will name it.
 
+### Fixed — sectors goudengids cannot serve occupied a nightly slot forever
+
+- `completed_sectors()` counts a sector done only when `jobs_done > 0`. That is correct for a
+  *blocked* sector — it reached the WAF, not the data — but wrong for one the site does not
+  index at all: it yields zero every time, so "retry" meant "retry forever".
+  `afvalverwerkingsindustrie` and `automobielfabrieken` both logged
+  `goudengids_sector_not_indexed` on 2026-07-30 and sat at the head of the queue.
+- New `goudengids_unscrapeable_sectors()` derives the dead set from the existing
+  `goudengids_sector_not_indexed` flag in `sectors.toml` (also catching sectors with no
+  goudengids entry at all), and `select_pending_sectors()` takes an `unscrapeable` argument
+  that drops them. The exclusion survives `--cycle`; blocked-sector retry is unchanged.
+- Effect on the live queue: pending for oostende fell from **82 to 55**. Twenty-seven
+  configured sectors can never be scraped from goudengids, and each would have consumed a
+  slot on every future night.
+
+### Changed — nightly slice lowered from 15 sectors to 10
+
+- On 2026-07-30 the WAF served 10 productive sectors over ~44 minutes and then blocked the
+  next three on page 1. Ten keeps the session under the observed threshold, and after the
+  fix above all ten slots go to sectors that can actually produce data. Applied to the
+  `be-leads-nightly-scrape` scheduled task, which lives outside the repo.
+
 ### Fixed — nightly_scrape.ps1 exited 1 on successful runs and never wrote its summary
 
 - `& uv @argList *>> $log` ran under `$ErrorActionPreference = 'Stop'`. Windows PowerShell

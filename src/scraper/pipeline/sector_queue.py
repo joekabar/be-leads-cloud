@@ -43,18 +43,40 @@ def completed_sectors(rows: Iterable[Mapping[str, Any]]) -> set[str]:
     return done
 
 
+def goudengids_unscrapeable_sectors(all_sectors: Iterable[str]) -> set[str]:
+    """Sectors goudengids cannot serve at all, so no night can ever complete them.
+
+    Either the sector carries ``goudengids_sector_not_indexed`` in ``sectors.toml`` or it
+    has no goudengids entry at all; both leave no listing URL to fetch.
+
+    This is the case ``completed_sectors`` deliberately does *not* cover. Its rule —
+    productive or retry — is correct for a blocked sector, but a sector that does not
+    exist on the site yields zero forever, so "retry" means "occupy a slot every night".
+    On 2026-07-30 ``afvalverwerkingsindustrie`` and ``automobielfabrieken`` did exactly
+    that, sitting at the head of the queue after logging ``goudengids_sector_not_indexed``.
+    """
+    from scraper.pipeline.batch import _resolve_goudengids_slug
+
+    return {s for s in all_sectors if _resolve_goudengids_slug(s, "nl") is None}
+
+
 def select_pending_sectors(
     all_sectors: Sequence[str],
     *,
     done: set[str],
     limit: int,
     cycle: bool = False,
+    unscrapeable: Iterable[str] = frozenset(),
 ) -> list[str]:
     """Return up to *limit* sectors from *all_sectors* that are not in *done*.
 
     Order follows *all_sectors* so the rotation covers everything once before repeating.
     Entries in *done* that are no longer configured are ignored, so removing a sector
     from the config cannot shift the slice.
+
+    Sectors in *unscrapeable* are dropped outright: they can never become done, so
+    leaving them in would hand them a slot every night in perpetuity. Unlike *done*, this
+    exclusion also survives *cycle* — restarting the rotation must not resurrect them.
 
     When every sector is done, an empty list is returned — the caller can then skip the
     night's run entirely. Pass *cycle* to start the rotation over instead, for a city
@@ -63,9 +85,12 @@ def select_pending_sectors(
     if limit <= 0:
         raise ValueError("limit must be positive")
 
-    pending = [s for s in all_sectors if s not in done]
+    dead = set(unscrapeable)
+    candidates = [s for s in all_sectors if s not in dead]
+
+    pending = [s for s in candidates if s not in done]
     if not pending and cycle:
-        pending = list(all_sectors)
+        pending = list(candidates)
     return pending[:limit]
 
 

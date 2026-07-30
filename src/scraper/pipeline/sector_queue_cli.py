@@ -14,7 +14,11 @@ import sys
 import asyncpg
 
 from scraper.pipeline.orchestrator import _SECTOR_NACE_PREFIXES
-from scraper.pipeline.sector_queue import fetch_completed_sectors, select_pending_sectors
+from scraper.pipeline.sector_queue import (
+    fetch_completed_sectors,
+    goudengids_unscrapeable_sectors,
+    select_pending_sectors,
+)
 
 
 def cli_main() -> None:  # pragma: no cover
@@ -57,11 +61,13 @@ def cli_main() -> None:  # pragma: no cover
             done = await fetch_completed_sectors(pool, city, within_hours=args.within_hours)
         finally:
             await pool.close()
+        all_sectors = sorted(_SECTOR_NACE_PREFIXES)
         return select_pending_sectors(
-            sorted(_SECTOR_NACE_PREFIXES),
+            all_sectors,
             done=done,
             limit=args.limit,
             cycle=args.cycle,
+            unscrapeable=goudengids_unscrapeable_sectors(all_sectors),
         )
 
     for slug in asyncio.run(_run()):
