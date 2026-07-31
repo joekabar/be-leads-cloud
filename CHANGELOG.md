@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (documentation)
+
+- **`docs/rebuild-lessons.md`** — retrospective on the week's four production failures (export path, silent Phase D/E/F suppression, nightly wrapper exit code, `UNLOGGED` staging wipe), what to keep, engineering changes ranked by leverage, and the GDPR / database-rights questions that selling the output raises. Documentation only — no code, schema, or scheduled-task changes.
+
 ### Added (UI-first operation: server + local goudengids)
 
 - **`src/scraper/ui/pages/run_pipeline.py`** — new Streamlit page to trigger the production **batch** pipeline from the browser (city × sectors, per-source toggles, dedup windows, optional export dir). Runs `run_batch` in a daemon thread; progress shows on the existing KBO Data → Live Progress tab.
