@@ -30,6 +30,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.47 s, total 1.9 min, no timeout and no malformed JSONB. The production exception remains
   unidentified precisely because it was suppressed; this change is what will name it.
 
+### Added — the export says what a company does, not just its NACE number
+
+- The CSV carried `nace_code` as a bare number (`43320`), which tells a reader nothing.
+  Two columns now sit beside it: **`nace_label`** (`43320` → "Schrijnwerk") and
+  **`activity_summary`** (the website-derived sentence, where enrichment found one).
+- Labels come from `code.csv` inside the KBO Open Data ZIP — the official descriptions,
+  already downloaded. `scripts/generate_nace_labels.py` extracts them once into the bundled
+  `src/scraper/lib/nace_labels.toml` (10,422 labels, 772 kB) alongside `sectors.toml` and
+  `postcodes.toml`. **Bundled rather than staged on purpose**: the `kbo_stage_*` tables are
+  UNLOGGED, so crash recovery empties them and an export joined against them would silently
+  blank the column — the same failure mode that nearly killed the 2026-07-31 run.
+- All three NACE versions are included (2025 ≈1.23M companies, 2008 ≈17k, 2003 ≈14k);
+  omitting the older two would have left ~31k companies unlabelled.
+- Lookup is longest-prefix *within a single version*, mirroring `scoring/hv_prior.py`, so
+  `01999` resolves to its `01` parent group and the 15 production rows carrying 6–7 character
+  codes still resolve. It deliberately never falls back across versions: codes are reused with
+  different meanings between taxonomies, so a cross-version match could attach a plainly wrong
+  description.
+- Measured on the live 1,674-row Oostende export: **654 of 654 companies that have a NACE code
+  got a label — zero lookup failures.** The remaining 1,020 rows have no NACE code at all, 956
+  of them goudengids placeholders that consolidation has not yet matched to a real KBO. Raising
+  that 39% is a consolidation problem, not a labelling one.
+
 ### Added — the nightly scrape brings its own database up
 
 - Every step of the nightly run needs Postgres, which runs in Docker — and Docker Desktop is

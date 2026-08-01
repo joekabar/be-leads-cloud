@@ -30,6 +30,116 @@ class TestTier:
         assert _tier(hv) == expected
 
 
+class TestActivityColumns:
+    """The CSV must say what a company does, not just which code it is filed under.
+
+    `nace_code` alone ("43320") is unreadable. `nace_label` translates it via the
+    official KBO code table; `activity_summary` carries the website-derived sentence
+    where enrichment found one (only ~875 companies of 1.96M, so it is often blank).
+    """
+
+    def _pool_for(self, obs_specs: list[tuple[str, dict[str, Any]]]) -> MagicMock:
+        """Build a pool serving one KBO whose observations are *obs_specs*."""
+        from scraper.db.models import Observation
+
+        kbo = "9000000001"
+        now = datetime.now(tz=UTC)
+        observations = [
+            Observation(
+                kbo_number=kbo,
+                field=field,
+                value=value,
+                raw_value=None,
+                source="kbo_dump",
+                source_url=None,
+                observed_at=now,
+                confidence=0.95,
+                run_id=uuid4(),
+            )
+            for field, value in obs_specs
+        ]
+
+        pool = MagicMock()
+
+        async def _fetch(sql: str, *args: Any, **kwargs: Any) -> list[Any]:
+            if "DISTINCT kbo_number FROM companies_current" in sql:
+                return [{"kbo_number": kbo}]
+            if "FROM observations " in sql and "revenue_" in sql:
+                return []
+            if "FROM observations " in sql:
+                return [{"kbo_number": kbo, "field": f, "value": v} for f, v in obs_specs]
+            if "FROM prospect_scores" in sql:
+                return []
+            if "FROM companies_current" in sql and "address" in sql:
+                return []
+            return []
+
+        pool.fetch = AsyncMock(side_effect=_fetch)
+        return pool, observations
+
+    async def _export_row(
+        self, tmp_path: Path, obs_specs: list[tuple[str, dict[str, Any]]]
+    ) -> dict[str, str]:
+        out = tmp_path / "leads.csv"
+        pool, observations = self._pool_for(obs_specs)
+        with patch("scraper.ui.export._row_to_obs", side_effect=list(observations)):
+            await export_csv(pool, out)
+        with out.open(encoding="utf-8") as fh:
+            return next(iter(csv.DictReader(fh)))
+
+    async def test_both_columns_exist(self) -> None:
+        assert "nace_label" in _COLUMNS
+        assert "activity_summary" in _COLUMNS
+
+    async def test_nace_code_becomes_a_readable_label(self, tmp_path: Path) -> None:
+        row = await self._export_row(
+            tmp_path,
+            [
+                ("name", {"text": "Acme"}),
+                ("nace_code", {"code": "01110", "version": "2025"}),
+            ],
+        )
+        assert row["nace_code"] == "01110"
+        assert "granen" in row["nace_label"].lower()
+
+    async def test_activity_summary_is_carried_through(self, tmp_path: Path) -> None:
+        row = await self._export_row(
+            tmp_path,
+            [
+                ("name", {"text": "Acme"}),
+                ("activity_summary", {"text": "Installatie van zonnepanelen.", "lang_hint": "nl"}),
+            ],
+        )
+        assert row["activity_summary"] == "Installatie van zonnepanelen."
+
+    async def test_missing_nace_leaves_label_blank(self, tmp_path: Path) -> None:
+        """Most leads have no activity_summary; a blank must not break the row."""
+        row = await self._export_row(tmp_path, [("name", {"text": "Acme"})])
+        assert row["nace_label"] == ""
+        assert row["activity_summary"] == ""
+
+    async def test_unknown_nace_code_leaves_label_blank(self, tmp_path: Path) -> None:
+        row = await self._export_row(
+            tmp_path,
+            [
+                ("name", {"text": "Acme"}),
+                ("nace_code", {"code": "04999", "version": "2025"}),
+            ],
+        )
+        assert row["nace_label"] == ""
+
+    async def test_old_nace_version_still_resolves(self, tmp_path: Path) -> None:
+        """~31k companies carry 2003/2008 codes; they must not export blank."""
+        row = await self._export_row(
+            tmp_path,
+            [
+                ("name", {"text": "Acme"}),
+                ("nace_code", {"code": "01110", "version": "2008"}),
+            ],
+        )
+        assert row["nace_label"] != ""
+
+
 class TestExportCsv:
     def _make_pool(
         self,

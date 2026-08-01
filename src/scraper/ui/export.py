@@ -14,6 +14,7 @@ from uuid import UUID
 import asyncpg
 
 from scraper.db.repositories.observations import _row_to_obs
+from scraper.lib.nace_labels import nace_label
 from scraper.pipeline.city_map import get_postal_codes
 from scraper.ui.data import _aggregate_row
 
@@ -26,6 +27,8 @@ _COLUMNS = [
     "postal_code",
     "city",
     "nace_code",
+    "nace_label",
+    "activity_summary",
     "tier",
     "phone",
     "email",
@@ -261,6 +264,14 @@ async def export_csv(
                 "postal_code": addr.get("postal_code", ""),
                 "city": addr.get("city", ""),
                 "nace_code": _fmt(base.get("nace_code")),
+                # A bare code says nothing about the business. Prefer the official KBO
+                # label; fall back to a description the observation carried itself.
+                "nace_label": _fmt(
+                    nace_label(base.get("nace_code"), base.get("nace_version"))
+                    or base.get("nace_description")
+                ),
+                # Website-derived prose, present for only ~875 of 1.96M companies.
+                "activity_summary": _fmt(base.get("website_summary")),
                 "tier": _tier(hv),
                 "phone": _fmt(base.get("phone")),
                 "email": _fmt(base.get("email")),

@@ -121,6 +121,9 @@ def _aggregate_row(kbo: str, obs_list: list[Any], now: datetime) -> dict[str, An
         "status": (status_val.get("value") or status_val.get("text", "")) if status_val else "",
         "nace_code": nace_val.get("code", "") if nace_val else "",
         "nace_description": nace_val.get("description", "") if nace_val else "",
+        # Needed to pick the right code table: NACE codes are reused with different
+        # meanings across the 2003/2008/2025 taxonomies.
+        "nace_version": nace_val.get("version", "") if nace_val else "",
         "legal_form_code": legal_form_val.get("code", "") if legal_form_val else "",
         "legal_form_label": legal_form_val.get("label", "") if legal_form_val else "",
         "size_category": legal_form_val.get("size_category", "") if legal_form_val else "",
