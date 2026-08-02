@@ -16,12 +16,36 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
 
+
+def _completed_window_clause(within_hours: int | None) -> str:
+    """Return the time predicate for 'already done', or "" for all-time.
+
+    All-time is the default: a sector scraped once stays done until someone explicitly
+    asks for a refresh. The previous 720-hour window silently re-queued every sector
+    after 30 days, which is harmless for a single city but stops an eleven-city rotation
+    ever completing — early cities re-enter the queue before the last one is reached.
+
+    ``0`` means all-time too, not "nothing is done". Interpolating it into the interval
+    would produce ``started_at >= now()``, marking every sector pending forever — the
+    exact inversion of what a caller passing 0 intends.
+    """
+    if not within_hours or within_hours <= 0:
+        return ""
+    return " AND started_at >= now() - ($2 || ' hours')::interval"
+
+
 _SQL_RECENT_RUNS = """
     SELECT sector_slug, jobs_done
     FROM run_log
     WHERE source = 'goudengids'
       AND lower(city_slug) = lower($1)
-      AND started_at >= now() - ($2 || ' hours')::interval
+"""
+
+_SQL_COMPLETED_BY_CITY = """
+    SELECT lower(city_slug) AS city, sector_slug, jobs_done
+    FROM run_log
+    WHERE source = 'goudengids'
+      AND lower(city_slug) = ANY($1::text[])
 """
 
 
@@ -98,12 +122,72 @@ async def fetch_completed_sectors(
     pool: Any,
     city: str,
     *,
-    within_hours: int = 720,
+    within_hours: int | None = None,
 ) -> set[str]:
-    """Sectors already scraped productively for *city* within *within_hours*.
+    """Sectors already scraped productively for *city*.
 
-    The default window matches ``goudengids_skip_recent_hours`` (30 days): past that,
-    listings are stale enough to be worth re-scraping.
+    Defaults to all-time — refresh only on command. Pass *within_hours* to reinstate a
+    rolling window (e.g. 720 for the old 30-day behaviour).
     """
-    rows = await pool.fetch(_SQL_RECENT_RUNS, city, str(within_hours))
+    clause = _completed_window_clause(within_hours)
+    if clause:
+        rows = await pool.fetch(_SQL_RECENT_RUNS + clause, city, str(within_hours))
+    else:
+        rows = await pool.fetch(_SQL_RECENT_RUNS, city)
     return completed_sectors(rows)
+
+
+async def fetch_completed_by_city(
+    pool: Any,
+    cities: Sequence[str],
+    *,
+    within_hours: int | None = None,
+) -> dict[str, set[str]]:
+    """Return ``{city: {productively scraped sectors}}`` in one round trip."""
+    lowered = [c.lower() for c in cities]
+    clause = _completed_window_clause(within_hours)
+    if clause:
+        rows = await pool.fetch(_SQL_COMPLETED_BY_CITY + clause, lowered, str(within_hours))
+    else:
+        rows = await pool.fetch(_SQL_COMPLETED_BY_CITY, lowered)
+
+    by_city: dict[str, list[Mapping[str, Any]]] = {}
+    for row in rows:
+        by_city.setdefault(str(row["city"]), []).append(row)
+    return {city: completed_sectors(rs) for city, rs in by_city.items()}
+
+
+def select_next_city(
+    cities: Sequence[str],
+    all_sectors: Sequence[str],
+    completed_by_city: Mapping[str, set[str]],
+    *,
+    unscrapeable: Iterable[str] = frozenset(),
+) -> str | None:
+    """First city in *cities* order that still has a scrapeable sector outstanding.
+
+    The rotation deliberately finishes one city before starting the next: a complete
+    city is a sellable dataset, whereas eleven half-scraped cities are not. Sectors in
+    *unscrapeable* are ignored, so a city whose only remaining entries can never be
+    served counts as finished rather than pinning the rotation forever.
+
+    Returns ``None`` when every city is complete, letting the caller skip the run.
+    """
+    dead = set(unscrapeable)
+    for city in cities:
+        done = completed_by_city.get(city.lower(), set())
+        if any(s not in done and s not in dead for s in all_sectors):
+            return city
+    return None
+
+
+def load_rotation_cities() -> list[str]:
+    """Ordered city rotation from the bundled ``scrape_cities.toml``."""
+    import tomllib
+
+    from scraper.lib.data_paths import SCRAPE_CITIES_TOML
+
+    with SCRAPE_CITIES_TOML.open("rb") as fh:
+        data = tomllib.load(fh)
+    rotation = data.get("rotation", {})
+    return [str(c) for c in rotation.get("cities", [])]

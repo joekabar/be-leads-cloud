@@ -19,8 +19,11 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $City   = 'oostende',
-    [int]    $Limit  = 15,
+    # Empty means "ask be-leads-next-city", which walks the rotation in
+    # src/scraper/lib/scrape_cities.toml and finishes one city before starting the next.
+    # Pass a slug to pin a single city.
+    [string] $City   = '',
+    [int]    $Limit  = 10,
     [string] $LogDir = '',
     # Run the database preflight and stop. Lets the dependency be verified without
     # spending an hour of WAF budget on a real scrape.
@@ -39,14 +42,17 @@ Set-Location $repo
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $stamp = Get-Date -Format 'yyyy-MM-dd-HHmm'
-$log   = Join-Path $LogDir "nightly_scrape_${City}_${stamp}.log"
 $state = Join-Path $LogDir 'nightly_scrape.log'
+# The run log is named after the city, which is not known until the rotation is queried,
+# and that needs the database. Preflight output therefore goes to its own file.
+$preflightLog = Join-Path $LogDir "preflight_${stamp}.log"
+$log = $preflightLog
 
 function Write-State([string] $msg) {
     "[$(Get-Date -Format s)] $msg" | Add-Content -Path $state -Encoding utf8
 }
 
-Write-State "START city=$City limit=$Limit"
+Write-State "START city=$(if ($City) { $City } else { '<rotation>' }) limit=$Limit"
 
 # ---------------------------------------------------------------------------
 # Database preflight.
@@ -149,6 +155,28 @@ if ($CheckOnly) {
     Write-Output 'Preflight OK: database reachable.'
     exit 0
 }
+
+# Which city is the rotation on? Finishes one city before starting the next; prints
+# nothing once every configured city is complete.
+if (-not $City) {
+    $cityRaw = & uv run be-leads-next-city 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-State "FAILED next-city exit=$LASTEXITCODE :: $cityRaw"
+        exit $LASTEXITCODE
+    }
+    $City = @($cityRaw | Where-Object { $_ -and ("$_".Trim() -ne '') } |
+        ForEach-Object { "$_".Trim() }) | Select-Object -First 1
+
+    if (-not $City) {
+        Write-State 'END exit=0 reason=all-cities-complete'
+        Write-Output 'Nothing to scrape: every configured city is complete.'
+        exit 0
+    }
+    Write-State "CITY $City (from rotation)"
+}
+
+# Now the city is known, so the run log can be named after it.
+$log = Join-Path $LogDir "nightly_scrape_${City}_${stamp}.log"
 
 # Which sectors still need work?
 $raw = & uv run be-leads-next-sectors --city $City --limit $Limit 2>&1

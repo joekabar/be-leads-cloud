@@ -30,10 +30,11 @@ def cli_main() -> None:  # pragma: no cover
     parser.add_argument(
         "--within-hours",
         type=int,
-        default=720,
+        default=None,
         help=(
-            "Treat a sector as done if scraped productively within this window "
-            "(default 720 = 30 days)"
+            "Treat a sector as done only if scraped productively within this window. "
+            "Omit for all-time: once scraped, a sector stays done until a refresh is "
+            "explicitly requested."
         ),
     )
     parser.add_argument(

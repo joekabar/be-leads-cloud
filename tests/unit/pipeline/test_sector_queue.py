@@ -13,7 +13,11 @@ from __future__ import annotations
 
 import pytest
 
-from scraper.pipeline.sector_queue import select_pending_sectors
+from scraper.pipeline.sector_queue import (
+    _completed_window_clause,
+    select_next_city,
+    select_pending_sectors,
+)
 
 _ALL = ["a", "b", "c", "d", "e"]
 
@@ -105,6 +109,95 @@ class TestGoudengidsUnscrapeableSectors:
             ["afvalverwerkingsindustrie", "automobielfabrieken", "advocaten"]
         )
         assert result == {"afvalverwerkingsindustrie", "automobielfabrieken"}
+
+
+class TestCityRotation:
+    """One city is finished before the next is started.
+
+    Broad-but-shallow coverage of many cities is worth less commercially than one
+    complete, sellable city: the rotation therefore stays on a city until it has no
+    pending sectors left, then advances.
+    """
+
+    def test_first_city_with_pending_work_wins(self) -> None:
+        result = select_next_city(
+            ["brugge", "oostende"], _ALL, {"brugge": set(), "oostende": set()}
+        )
+        assert result == "brugge"
+
+    def test_advances_only_when_the_city_is_complete(self) -> None:
+        result = select_next_city(
+            ["brugge", "oostende"], _ALL, {"brugge": set(_ALL), "oostende": {"a"}}
+        )
+        assert result == "oostende"
+
+    def test_stays_on_a_partially_done_city(self) -> None:
+        result = select_next_city(["brugge", "oostende"], _ALL, {"brugge": {"a", "b"}})
+        assert result == "brugge"
+
+    def test_returns_none_when_every_city_is_complete(self) -> None:
+        done = {c: set(_ALL) for c in ["brugge", "oostende"]}
+        assert select_next_city(["brugge", "oostende"], _ALL, done) is None
+
+    def test_unknown_city_is_treated_as_untouched(self) -> None:
+        assert select_next_city(["brugge"], _ALL, {}) == "brugge"
+
+    def test_unscrapeable_sectors_do_not_keep_a_city_alive(self) -> None:
+        """A city whose only 'pending' sectors are unscrapeable is finished."""
+        done = set(_ALL) - {"e"}
+        result = select_next_city(
+            ["brugge", "oostende"],
+            _ALL,
+            {"brugge": done, "oostende": {"a"}},
+            unscrapeable={"e"},
+        )
+        assert result == "oostende"
+
+    def test_empty_city_list_returns_none(self) -> None:
+        assert select_next_city([], _ALL, {}) is None
+
+
+class TestRotationConfig:
+    def test_bundled_rotation_is_loadable_and_ordered(self) -> None:
+        from scraper.pipeline.sector_queue import load_rotation_cities
+
+        cities = load_rotation_cities()
+        assert cities[0] == "brugge", "brugge leads the rotation by request"
+        assert len(cities) >= 2
+        assert len(set(cities)) == len(cities), "a duplicate city would be scraped twice"
+
+    def test_rotation_excludes_french_speaking_cities(self) -> None:
+        """Those live on pagesdor.be and need lang=fr, which is separate work."""
+        from scraper.pipeline.sector_queue import load_rotation_cities
+
+        cities = set(load_rotation_cities())
+        assert not cities & {"charleroi", "liege", "luik", "mons", "bergen", "namur", "namen"}
+
+    def test_rotation_has_no_gent_ghent_duplicate(self) -> None:
+        """city_map.toml carries both spellings for the same place."""
+        from scraper.pipeline.sector_queue import load_rotation_cities
+
+        cities = set(load_rotation_cities())
+        assert not {"gent", "ghent"} <= cities
+
+
+class TestRefreshOnlyOnCommand:
+    """A completed sector is never re-offered until someone asks for it.
+
+    The 720-hour window meant every sector silently came back after 30 days. With one
+    city that was harmless; across eleven cities it would mean the rotation never
+    finishes, because early cities keep re-entering the queue before the last is reached.
+    """
+
+    def test_all_time_is_the_default(self) -> None:
+        assert _completed_window_clause(None) == ""
+
+    def test_a_window_still_filters_when_requested(self) -> None:
+        assert "interval" in _completed_window_clause(720)
+
+    def test_zero_hours_means_all_time_not_nothing(self) -> None:
+        """0 must not become 'started_at >= now()', which would mark everything pending."""
+        assert _completed_window_clause(0) == ""
 
 
 class TestBlockedSectorsAreNotDone:

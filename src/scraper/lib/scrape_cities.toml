@@ -1,0 +1,28 @@
+# Rotation order for the nightly scrape.
+#
+# The scraper finishes one city before starting the next, so this order decides which
+# city becomes a complete, sellable dataset first. Edit the list to add or reorder;
+# nothing else needs changing.
+#
+# Flemish cities only. Charleroi, Liege, Mons and Namur are French-speaking and live on
+# pagesdor.be rather than goudengids.be, which needs lang="fr" and a different sector
+# slug set -- a separate piece of work. Brussels is bilingual and has the same issue.
+#
+# brugge is first by request. oostende is second because it is already ~46% complete,
+# so finishing it is cheap and yields a second finished city quickly. The rest follow
+# roughly by company count, so the biggest wins land soonest.
+
+[rotation]
+cities = [
+    "brugge",
+    "oostende",
+    "antwerpen",
+    "gent",
+    "leuven",
+    "mechelen",
+    "aalst",
+    "hasselt",
+    "kortrijk",
+    "sint-niklaas",
+    "roeselare",
+]

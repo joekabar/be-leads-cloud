@@ -30,6 +30,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.47 s, total 1.9 min, no timeout and no malformed JSONB. The production exception remains
   unidentified precisely because it was suppressed; this change is what will name it.
 
+### Added — the scrape walks a city rotation instead of one hard-coded city
+
+- `nightly_scrape.ps1` no longer pins `-City oostende`. It asks the new
+  **`be-leads-next-city`** which city to work on, and that returns the first entry in
+  `src/scraper/lib/scrape_cities.toml` still holding a scrapeable sector. One city is
+  finished before the next begins: a complete city is a sellable dataset, eleven
+  half-scraped ones are not. Passing `-City <slug>` still pins a single city.
+- Rotation order: **brugge** (by request), then **oostende** (already ~46% done, so a
+  second finished city comes cheap), then the rest roughly by company count. Flemish
+  cities only — Charleroi, Liège, Mons and Namur sit on pagesdor.be and need `lang="fr"`
+  with a different slug set, which is separate work. `gent`/`ghent` in `city_map.toml`
+  are byte-identical duplicates; only `gent` is in the rotation, so Ghent is not scraped
+  twice.
+- `select_next_city()` skips sectors goudengids cannot serve, so a city whose only
+  remaining entries are unscrapeable counts as finished rather than pinning the rotation.
+  When every city is complete the CLI prints nothing and the run exits early.
+- Because the run log is named after the city and the city is not known until the
+  database has answered, preflight output now goes to its own `preflight_<stamp>.log`.
+
+### Changed — a scraped sector stays done until a refresh is requested
+
+- `fetch_completed_sectors()` defaulted to a 720-hour (30-day) window, so every sector
+  silently returned to the queue after a month. Harmless with one city; fatal to an
+  eleven-city rotation, where early cities would re-enter the queue before the last was
+  ever reached. All-time is now the default — refresh only on command.
+- Pass `--within-hours 720` to reinstate the old rolling window, or `--cycle` to restart
+  a city deliberately. A commanded re-scrape also wants
+  `--goudengids-skip-recent-hours 0`, since that is a separate dedup layer.
+- `_completed_window_clause(0)` returns all-time rather than an empty window.
+  Interpolating 0 would have produced `started_at >= now()`, marking every sector pending
+  forever — the exact inverse of what passing 0 means.
+- This immediately recovered real work: brugge, sint-niklaas, antwerpen, aalst and gent
+  were scraped on 2026-05-17 (brugge's `advocaten` alone yielded 2,578 observations) and
+  had all silently expired. 63 sector-jobs preserved rather than re-scraped.
+
+### Changed — two scrape runs a day
+
+- `be-leads-nightly-scrape` now triggers at **02:30 and 14:30**. Measured evidence says the
+  WAF limiter is a short rolling window rather than a daily quota: on 2026-08-02 a block at
+  16.2 min was followed by `kledingwinkels` pulling 25 pages and 749 observations at
+  35.7 min. Two sessions 12 hours apart should each start clean.
+- Remaining work across the rotation is **772 sector-jobs** — roughly 2.6 months at ~10
+  productive sectors/day. Frequency is no longer the constraint; the sector supply is.
+
 ### Fixed — a third of every export was the same company twice
 
 - Consolidation re-emits a matched placeholder's observations under the real KBO but never
