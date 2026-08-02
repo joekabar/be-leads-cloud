@@ -178,6 +178,29 @@ async def export_csv(
     kbo_rows = await pool.fetch(select_sql, *select_params)
 
     kbos = [str(r["kbo_number"]).strip() for r in kbo_rows]
+
+    # Drop placeholders that consolidation merged into a real KBO **that this export also
+    # selects**. Their observations were re-emitted under that KBO, so keeping both ships
+    # the same company twice — 559 of 1,674 rows in the 2026-08-01 Oostende export.
+    #
+    # The membership test is essential, not defensive. A company listed on goudengids in
+    # Oostende can be registered at an address elsewhere, so the real KBO fails a
+    # city-filtered selection while the placeholder passes it. Dropping such a placeholder
+    # unconditionally orphaned 147 real leads — 13% of the file — with no representative
+    # left at all. Unmatched placeholders stay for the same reason: they are the only
+    # record of those companies.
+    matched_rows = await pool.fetch(
+        "SELECT placeholder_kbo, real_kbo FROM consolidation_state WHERE real_kbo IS NOT NULL"
+    )
+    selected = set(kbos)
+    merged = {
+        str(r["placeholder_kbo"]).strip()
+        for r in matched_rows
+        if str(r["real_kbo"]).strip() in selected
+    }
+    if merged:
+        kbos = [k for k in kbos if k not in merged]
+
     if not kbos:
         if chunk_size > 0:
             return []

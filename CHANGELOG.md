@@ -30,6 +30,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.47 s, total 1.9 min, no timeout and no malformed JSONB. The production exception remains
   unidentified precisely because it was suppressed; this change is what will name it.
 
+### Fixed — a third of every export was the same company twice
+
+- Consolidation re-emits a matched placeholder's observations under the real KBO but never
+  deletes the placeholder, correctly, since observations are append-only. The export then
+  selected **both**, so `LIAM VERHUIZINGEN` shipped as `9001582028` (phone, no NACE) *and*
+  as `1028670251` (phone, NACE 49420). Measured on the 2026-08-01 Oostende file: **559 of
+  1,674 rows** were the redundant half of a matched pair. The apparent 61% gap in
+  `nace_label` was largely this, not missing data.
+- The export now drops a placeholder when its matched real KBO **is also in the selection**.
+  That membership test is essential rather than defensive: a company listed on goudengids in
+  Oostende may be *registered* elsewhere, so a city-filtered export selects the placeholder
+  but not the twin. An unconditional drop orphaned **147 real leads (13% of the file)** with
+  no representative left — caught before release and covered by a regression test.
+- Result on live data: 1,674 → 1,340 rows, 559 duplicates removed, **0 orphaned**, and
+  `nace_label` coverage rises from 39.1% to 53.5% on the same underlying data.
+
+### Fixed — a disagreeing phone number now vetoes a consolidation match
+
+- `Bakkerij Desmedt` (a bakery, +3259704201) had been matched to `DRUKKERIJ DESMET` (a
+  printing works, +3259332224) at score exactly **80.00**, the threshold floor, via
+  `name+postal` — both sit in 8400 Oostende. The bakery's phone was then re-emitted onto the
+  printer's registry record at 0.9 confidence.
+- Neither obvious lever fixes this. Raising the threshold does not: score-100 pairs still
+  disagree on phone 8.4% of the time. Nor does geography: `name_only` matches disagree 15.2%
+  within a province versus 17.4% across provinces — statistically indistinguishable.
+- The phone does separate them. Across production matches the two sides agree **2,954** times
+  and disagree **303** times, and the disagreement rate tracks pass reliability exactly:
+  `name+postal` 6.6%, `name+city` 11.1%, `name_only` **17.8%**.
+- `_phones_conflict()` now rejects any candidate whose phone differs, in all three passes.
+  Where only one side has a phone there is no evidence either way, so the name decides. On
+  the `name_only` pass the veto rejects the placeholder outright rather than falling through
+  to a runner-up — that pass has the worst false-match rate, so it fails closed.
+- Deliberate trade for a dataset that gets sold: a missed link is far cheaper than attaching
+  one company's phone number to another company's record. Pre-existing bad links are left in
+  place — observations are append-only, so this fixes forward only.
+
 ### Added — the export says what a company does, not just its NACE number
 
 - The CSV carried `nace_code` as a bare number (`43320`), which tells a reader nothing.

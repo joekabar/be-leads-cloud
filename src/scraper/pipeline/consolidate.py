@@ -57,6 +57,26 @@ class _KboInfo:
     name_norm: str
     postal_code: str
     city: str
+    #: Canonical e164 number, when the company has one. Used to veto name matches;
+    #: empty means "no evidence", never "no match".
+    phone: str = ""
+
+
+def _phones_conflict(a: _KboInfo, b: _KboInfo) -> bool:
+    """True when both sides carry a phone and the numbers differ.
+
+    Name similarity cannot separate two nearby companies with similar names:
+    "Bakkerij Desmedt" matched "DRUKKERIJ DESMET" at exactly the 80.0 threshold because
+    both are in 8400 Oostende. Raising the threshold does not fix it (score-100 pairs
+    still disagree 8.4% of the time) and neither does a geographic constraint
+    (same-province name_only matches disagree 15.2% vs 17.4% cross-province).
+
+    The phone does separate them: across production matches the two sides agree 2,954
+    times and disagree 303 times. A disagreement is treated as decisive, because
+    attaching one company's phone to another company's registry record is far more
+    damaging in a dataset that gets sold than simply failing to link.
+    """
+    return bool(a.phone and b.phone and a.phone != b.phone)
 
 
 _SQL_PLACEHOLDER_NAMES = (
@@ -76,6 +96,14 @@ _SQL_REAL_ADDRS = (
     "SELECT kbo_number, value->>'postal_code' AS postal_code, "
     "value->>'city' AS city FROM companies_current "
     "WHERE field = 'address' AND kbo_number NOT LIKE '9%'"
+)
+_SQL_PLACEHOLDER_PHONES = (
+    "SELECT kbo_number, value->>'e164' AS phone FROM companies_current "
+    "WHERE field = 'phone' AND kbo_number LIKE '9%'"
+)
+_SQL_REAL_PHONES = (
+    "SELECT kbo_number, value->>'e164' AS phone FROM companies_current "
+    "WHERE field = 'phone' AND kbo_number NOT LIKE '9%'"
 )
 
 
@@ -130,14 +158,16 @@ def select_placeholders_to_process(
 
 
 async def _gather_kbo_infos(pool: asyncpg.Pool, is_placeholder: bool) -> list[_KboInfo]:
-    """Collect name, postal_code, city for placeholder (9%) or real KBOs."""
+    """Collect name, postal_code, city and phone for placeholder (9%) or real KBOs."""
     name_rows = await pool.fetch(_SQL_PLACEHOLDER_NAMES if is_placeholder else _SQL_REAL_NAMES)
     addr_rows = await pool.fetch(_SQL_PLACEHOLDER_ADDRS if is_placeholder else _SQL_REAL_ADDRS)
+    phone_rows = await pool.fetch(_SQL_PLACEHOLDER_PHONES if is_placeholder else _SQL_REAL_PHONES)
 
     names: dict[str, str] = {r["kbo_number"]: r["name"] or "" for r in name_rows}
     addrs: dict[str, tuple[str, str]] = {}
     for r in addr_rows:
         addrs[r["kbo_number"]] = (r["postal_code"] or "", r["city"] or "")
+    phones: dict[str, str] = {r["kbo_number"]: (r["phone"] or "") for r in phone_rows}
 
     result: list[_KboInfo] = []
     for kbo in names:
@@ -150,6 +180,7 @@ async def _gather_kbo_infos(pool: asyncpg.Pool, is_placeholder: bool) -> list[_K
                 name_norm=_normalize_for_match(name),
                 postal_code=postal.strip(),
                 city=city.lower().strip(),
+                phone=phones.get(kbo, "").strip(),
             )
         )
     return result
@@ -185,6 +216,8 @@ def _best_match(
             c for c in reals if c.postal_code == placeholder.postal_code and c.postal_code
         ]
     for c in postal_candidates:
+        if _phones_conflict(placeholder, c):
+            continue
         score = fuzz.token_set_ratio(placeholder.name_norm, c.name_norm)
         if score >= threshold and score > best_score:
             best_score = score
@@ -207,6 +240,8 @@ def _best_match(
             c for c in reals if c.city and placeholder.city and c.city == placeholder.city
         ]
     for c in city_candidates:
+        if _phones_conflict(placeholder, c):
+            continue
         score = fuzz.token_set_ratio(placeholder.name_norm, c.name_norm)
         if score >= threshold and score > best_score:
             best_score = score
@@ -231,6 +266,12 @@ def _best_match(
         )
         if result is not None:
             _matched_norm, score, idx = result
+            # extractOne returns a single winner, so the veto is applied afterwards
+            # rather than by filtering candidates. A conflicting winner rejects the
+            # placeholder outright instead of falling through to a runner-up: this pass
+            # has the worst false-match rate (17.8%), so failing closed is the safer bet.
+            if _phones_conflict(placeholder, reals[idx]):
+                return None
             return ConsolidationMatch(
                 placeholder_kbo=placeholder.kbo,
                 real_kbo=reals[idx].kbo,
@@ -239,6 +280,8 @@ def _best_match(
             )
     else:
         for c in reals:
+            if _phones_conflict(placeholder, c):
+                continue
             score = fuzz.token_set_ratio(placeholder.name_norm, c.name_norm)
             if score >= 90.0 and score > best_score:
                 best_score = score

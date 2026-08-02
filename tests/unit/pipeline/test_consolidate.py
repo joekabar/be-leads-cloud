@@ -110,6 +110,116 @@ class TestRunMatching:
         assert matches == []
 
 
+class TestPhoneVeto:
+    """A disagreeing phone number vetoes a name match, at any score.
+
+    Measured on production: matched pairs where both sides carry a phone agree 2,954
+    times and disagree 303 times. The disagreements are concentrated in genuine false
+    matches -- "Bakkerij Desmedt" (a bakery, +3259704201) was matched to "DRUKKERIJ
+    DESMET" (a printing works, +3259332224) at score exactly 80.00 via name+postal,
+    because both sit in 8400 Oostende.
+
+    Name similarity alone cannot separate those: raising the threshold does not help
+    (score-100 pairs still disagree 8.4% of the time) and neither does geography
+    (same-province name_only matches disagree 15.2% vs 17.4% for cross-province). The
+    phone is the discriminator. For a dataset that gets sold, a missed link is far
+    cheaper than attaching one company's phone number to another company's record.
+    """
+
+    def _pair(
+        self,
+        *,
+        name: str = "Acme NV",
+        real_name: str = "Acme NV",
+        ph_phone: str = "",
+        real_phone: str = "",
+    ) -> tuple[_KboInfo, _KboInfo]:
+        placeholder = _KboInfo(
+            kbo="9000000001",
+            name=name,
+            name_norm=_normalize_for_match(name),
+            postal_code="2000",
+            city="antwerpen",
+            phone=ph_phone,
+        )
+        real = _KboInfo(
+            kbo="0400000001",
+            name=real_name,
+            name_norm=_normalize_for_match(real_name),
+            postal_code="2000",
+            city="antwerpen",
+            phone=real_phone,
+        )
+        return placeholder, real
+
+    def _match(self, placeholder: _KboInfo, real: _KboInfo) -> list:
+        return _run_matching(
+            [placeholder],
+            [real],
+            {real.postal_code: [real]},
+            {real.city: [real]},
+            [real.name_norm],
+            80.0,
+        )
+
+    def test_agreeing_phones_still_match(self) -> None:
+        p, r = self._pair(ph_phone="+3221234567", real_phone="+3221234567")
+        assert len(self._match(p, r)) == 1
+
+    def test_conflicting_phones_veto_the_match(self) -> None:
+        p, r = self._pair(ph_phone="+3221234567", real_phone="+3229999999")
+        assert self._match(p, r) == []
+
+    def test_veto_applies_even_to_a_perfect_name_score(self) -> None:
+        """Identical names are not enough: two firms can share a trading name."""
+        p, r = self._pair(
+            name="Acme NV", real_name="Acme NV", ph_phone="+3221111111", real_phone="+3222222222"
+        )
+        assert self._match(p, r) == []
+
+    def test_the_bakkerij_drukkerij_false_match_is_now_rejected(self) -> None:
+        p, r = self._pair(
+            name="Bakkerij Desmedt",
+            real_name="DRUKKERIJ DESMET",
+            ph_phone="+3259704201",
+            real_phone="+3259332224",
+        )
+        assert self._match(p, r) == []
+
+    def test_missing_placeholder_phone_cannot_veto(self) -> None:
+        """No phone on one side means no evidence either way -- fall back to the name."""
+        p, r = self._pair(ph_phone="", real_phone="+3221234567")
+        assert len(self._match(p, r)) == 1
+
+    def test_missing_real_phone_cannot_veto(self) -> None:
+        p, r = self._pair(ph_phone="+3221234567", real_phone="")
+        assert len(self._match(p, r)) == 1
+
+    def test_both_phones_missing_matches_on_name(self) -> None:
+        p, r = self._pair(ph_phone="", real_phone="")
+        assert len(self._match(p, r)) == 1
+
+    def test_veto_applies_on_the_name_only_pass(self) -> None:
+        """Pass 3 has the worst false-match rate (17.8%), so it needs the veto most."""
+        p = _KboInfo(
+            kbo="9000000001",
+            name="Acme NV",
+            name_norm=_normalize_for_match("Acme NV"),
+            postal_code="",
+            city="",
+            phone="+3221111111",
+        )
+        r = _KboInfo(
+            kbo="0400000001",
+            name="Acme NV",
+            name_norm=_normalize_for_match("Acme NV"),
+            postal_code="9999",
+            city="elsewhere",
+            phone="+3222222222",
+        )
+        assert _run_matching([p], [r], {}, {}, [r.name_norm], 80.0) == []
+
+
 class TestConsolidate:
     async def test_returns_empty_when_no_placeholders(self) -> None:
         pool = _make_consolidate_pool(
@@ -168,6 +278,8 @@ def _make_consolidate_pool(
     real_addrs: list[dict[str, str]] | None = None,
     obs_rows: list[dict[str, object]] | None = None,
     state_rows: list[dict[str, object]] | None = None,
+    placeholder_phones: list[dict[str, str]] | None = None,
+    real_phones: list[dict[str, str]] | None = None,
 ) -> AsyncMock:
     pool = AsyncMock()
     pool.execute.return_value = None
@@ -185,11 +297,15 @@ def _make_consolidate_pool(
     acquire_cm.__aexit__ = AsyncMock(return_value=False)
     pool.acquire = MagicMock(return_value=acquire_cm)
 
+    # Order mirrors _gather_kbo_infos: names, addresses, then phones -- once for the
+    # placeholder population and once for the real one.
     fetch_sequence = [
         placeholder_names or [],
         placeholder_addrs or [],
+        placeholder_phones or [],
         real_names or [],
         real_addrs or [],
+        real_phones or [],
         # consolidate() then reads consolidation_state to skip placeholders already
         # processed for this snapshot. An empty table means "process everything".
         state_rows or [],

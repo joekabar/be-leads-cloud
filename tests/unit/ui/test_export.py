@@ -30,6 +30,147 @@ class TestTier:
         assert _tier(hv) == expected
 
 
+class TestMatchedPlaceholdersAreNotExportedTwice:
+    """A consolidated placeholder must not appear beside the real KBO it merged into.
+
+    Consolidation re-emits a placeholder's observations under the matched real KBO but
+    never deletes the placeholder -- observations are append-only. The export then
+    selected both, so the same company shipped twice: once as 9001582028 (phone, no
+    NACE) and once as 1028670251 (phone, NACE 49420). Measured on the 2026-08-01
+    Oostende export: 559 of 1,674 rows were the redundant half of a matched pair, so
+    the file overstated the lead count by a third.
+
+    The placeholder is the half to drop: the real KBO carries the same contact data plus
+    everything the registry knows.
+    """
+
+    def _pool(self, kbos: list[str], matched_placeholders: dict[str, str]) -> MagicMock:
+        pool = MagicMock()
+
+        async def _fetch(sql: str, *args: Any, **kwargs: Any) -> list[Any]:
+            if "consolidation_state" in sql:
+                return [
+                    {"placeholder_kbo": p, "real_kbo": r} for p, r in matched_placeholders.items()
+                ]
+            if "DISTINCT kbo_number FROM companies_current" in sql:
+                return [{"kbo_number": k} for k in kbos]
+            if "FROM observations " in sql and "revenue_" in sql:
+                return []
+            if "FROM observations " in sql:
+                # One name observation per surviving KBO, so the row is not skipped.
+                return [{"kbo_number": k, "field": "name", "value": {"text": k}} for k in kbos]
+            return []
+
+        pool.fetch = AsyncMock(side_effect=_fetch)
+        return pool
+
+    async def test_matched_placeholder_is_dropped(self, tmp_path: Path) -> None:
+        from scraper.db.models import Observation
+
+        obs = Observation(
+            kbo_number="0439401387",
+            field="name",
+            value={"text": "Acme"},
+            raw_value=None,
+            source="kbo_dump",
+            observed_at=datetime.now(tz=UTC),
+            confidence=0.95,
+            run_id=uuid4(),
+            source_url=None,
+        )
+        pool = self._pool(
+            ["9000000001", "0439401387"],
+            matched_placeholders={"9000000001": "0439401387"},
+        )
+        out = tmp_path / "leads.csv"
+        with patch("scraper.ui.export._row_to_obs", return_value=obs):
+            await export_csv(pool, out)
+
+        with out.open(encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+        exported = {r["kbo_number"] for r in rows}
+        assert "9000000001" not in exported, "matched placeholder must not be exported"
+
+    async def test_unmatched_placeholder_is_kept(self, tmp_path: Path) -> None:
+        """An unmatched placeholder is the only record of that company -- keep it."""
+        from scraper.db.models import Observation
+
+        obs = Observation(
+            kbo_number="9000000002",
+            field="name",
+            value={"text": "Unmatched BV"},
+            raw_value=None,
+            source="goudengids",
+            observed_at=datetime.now(tz=UTC),
+            confidence=0.8,
+            run_id=uuid4(),
+            source_url=None,
+        )
+        pool = self._pool(["9000000002"], matched_placeholders={})
+        out = tmp_path / "leads.csv"
+        with patch("scraper.ui.export._row_to_obs", return_value=obs):
+            await export_csv(pool, out)
+
+        with out.open(encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+        assert {r["kbo_number"] for r in rows} == {"9000000002"}
+
+    async def test_matched_placeholder_is_kept_when_its_twin_is_not_selected(
+        self, tmp_path: Path
+    ) -> None:
+        """Dropping it would orphan the company: no row would represent it at all.
+
+        A company listed on goudengids in Oostende can be registered elsewhere, so a
+        city-filtered export selects the placeholder but not the real KBO. Removing
+        matched placeholders unconditionally orphaned 147 real leads — 13% of the file.
+        """
+        from scraper.db.models import Observation
+
+        obs = Observation(
+            kbo_number="9000000003",
+            field="name",
+            value={"text": "Listed here, registered elsewhere"},
+            raw_value=None,
+            source="goudengids",
+            observed_at=datetime.now(tz=UTC),
+            confidence=0.8,
+            run_id=uuid4(),
+            source_url=None,
+        )
+        # The placeholder is matched, but its real twin is outside this selection.
+        pool = self._pool(["9000000003"], matched_placeholders={"9000000003": "0439401387"})
+        out = tmp_path / "leads.csv"
+        with patch("scraper.ui.export._row_to_obs", return_value=obs):
+            await export_csv(pool, out)
+
+        with out.open(encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+        assert {r["kbo_number"] for r in rows} == {"9000000003"}
+
+    async def test_real_kbos_are_never_filtered(self, tmp_path: Path) -> None:
+        from scraper.db.models import Observation
+
+        obs = Observation(
+            kbo_number="0439401387",
+            field="name",
+            value={"text": "Acme"},
+            raw_value=None,
+            source="kbo_dump",
+            observed_at=datetime.now(tz=UTC),
+            confidence=0.95,
+            run_id=uuid4(),
+            source_url=None,
+        )
+        pool = self._pool(["0439401387"], matched_placeholders={"9000000001": "0439401387"})
+        out = tmp_path / "leads.csv"
+        with patch("scraper.ui.export._row_to_obs", return_value=obs):
+            await export_csv(pool, out)
+
+        with out.open(encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+        assert {r["kbo_number"] for r in rows} == {"0439401387"}
+
+
 class TestActivityColumns:
     """The CSV must say what a company does, not just which code it is filed under.
 
