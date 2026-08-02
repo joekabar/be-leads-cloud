@@ -162,7 +162,7 @@ class TestRotationConfig:
         from scraper.pipeline.sector_queue import load_rotation_cities
 
         cities = load_rotation_cities()
-        assert cities[0] == "brugge", "brugge leads the rotation by request"
+        assert cities[0] == "oostende", "oostende leads the rotation by request"
         assert len(cities) >= 2
         assert len(set(cities)) == len(cities), "a duplicate city would be scraped twice"
 

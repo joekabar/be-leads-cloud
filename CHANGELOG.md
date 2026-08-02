@@ -30,6 +30,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.47 s, total 1.9 min, no timeout and no malformed JSONB. The production exception remains
   unidentified precisely because it was suppressed; this change is what will name it.
 
+### Fixed — revenue and employees were blank in every export and every UI row, always
+
+- `sources/nbb_authentic/transformer.py` writes `{"value": <amount>, "currency": "EUR", …}`,
+  but both readers — `ui/export.py` and `ui/data.py::_latest_financial` — looked for
+  `"eur"`/`"count"`. Those keys exist on **1 of 73,939** financial observations, so
+  `revenue_2023`, `revenue_2024` and `employees_2024` were empty for every company in both
+  the CSV and the Streamlit UI, regardless of how much NBB data had been collected.
+- 70 `nbb_authentic` runs and 128,892 jobs of financial data were being discarded at the
+  last step. After the fix, on the live Oostende export: `revenue_2023` 34.6%,
+  `revenue_2024` 36.0%, `employees_2024` 7.7% — all previously 0.0%.
+- Extracted as `_financial_amount()`, shared by both readers, preferring `"value"` and
+  keeping the legacy keys as fallbacks. It tests key **membership** rather than truthiness:
+  a genuine turnover of 0 is data, and `or` chaining silently discarded it.
+- The `--max-revenue` filter was never affected — its SQL already read `value->>'value'`
+  correctly, so the two halves of the same feature disagreed about the schema.
+- **Why the test suite missed it:** the existing tests asserted against
+  `{"eur": …}` / `{"count": …}` — they encoded the same imagined shape as the code, so
+  1,200 tests at 86% coverage all passed while the feature produced nothing. New tests use
+  the shape the producer actually writes.
+
+### Fixed — a third of exported rows had no city
+
+- goudengids listing cards usually carry a postcode but no municipality: **358,414 of its
+  642,520** address observations (56%) have no city, against 106 of 1,182,231 for
+  `kbo_dump`. So `city` was blank on 495 of 1,340 rows even though the postcode that
+  selected the row was sitting in the next column.
+- New `city_map.city_for_postal_code()` inverts the existing city→postcodes map to fill the
+  gap. A postcode claimed by more than one configured city resolves to `None` rather than a
+  guess — writing the wrong municipality is worse than leaving the column empty.
+- City coverage on the Oostende export: **63.1% → 100%**.
+
 ### Added — the scrape walks a city rotation instead of one hard-coded city
 
 - `nightly_scrape.ps1` no longer pins `-City oostende`. It asks the new

@@ -38,14 +38,31 @@ def _all_obs_values(obs_list: list[Any], field: str) -> list[dict[str, Any]]:
     return [cast("dict[str, Any]", o.value) for o in candidates]
 
 
+def _financial_amount(value: dict[str, Any]) -> float | None:
+    """Pull the numeric amount out of a financial observation's JSONB.
+
+    ``sources/nbb_authentic/transformer.py`` writes
+    ``{"value": <amount>, "currency": "EUR", ...}``. Readers here previously looked for
+    ``"eur"``/``"count"``, which exist on 1 of 73,939 production rows — so revenue and
+    employees were blank everywhere, in both the CSV export and the UI. The legacy keys
+    are kept as fallbacks so that one row still resolves.
+
+    Membership is tested rather than truthiness: a genuine turnover of 0 is data, and
+    ``or`` chaining would silently discard it.
+    """
+    for key in ("value", "eur", "count"):
+        if key in value and value[key] is not None:
+            return cast("float | None", value[key])
+    return None
+
+
 def _latest_financial(obs_list: list[Any], prefix: str) -> float | None:
     """Return the most recent financial value for a prefix (revenue/profit/employees)."""
     candidates = [o for o in obs_list if o.field.startswith(prefix + "_")]
     if not candidates:
         return None
     best = max(candidates, key=lambda o: o.field)  # latest year lexicographically
-    raw = best.value.get("eur") or best.value.get("count")
-    return cast("float | None", raw)
+    return _financial_amount(best.value)
 
 
 def _aggregate_row(kbo: str, obs_list: list[Any], now: datetime) -> dict[str, Any]:

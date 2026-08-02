@@ -15,8 +15,8 @@ import asyncpg
 
 from scraper.db.repositories.observations import _row_to_obs
 from scraper.lib.nace_labels import nace_label
-from scraper.pipeline.city_map import get_postal_codes
-from scraper.ui.data import _aggregate_row
+from scraper.pipeline.city_map import city_for_postal_code, get_postal_codes
+from scraper.ui.data import _aggregate_row, _financial_amount
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -60,6 +60,13 @@ def _fmt(v: Any) -> str:
     if v is None:
         return ""
     return str(v)
+
+
+def _titlecase_city(slug: str | None) -> str:
+    """Render a city slug for display: "sint-niklaas" -> "Sint-Niklaas"."""
+    if not slug:
+        return ""
+    return "-".join(part.capitalize() for part in slug.split("-"))
 
 
 def resolve_city_postcodes(cities: Sequence[str]) -> list[str]:
@@ -249,7 +256,7 @@ async def export_csv(
     for r in fin_rows:
         kbo = str(r["kbo_number"]).strip()
         val = dict(r["value"])
-        raw = val.get("eur") or val.get("count")
+        raw = _financial_amount(val)
         if raw is not None:
             fin_by_kbo.setdefault(kbo, {})[str(r["field"])] = float(raw)
 
@@ -263,10 +270,15 @@ async def export_csv(
     for r in addr_rows:
         kbo = str(r["kbo_number"]).strip()
         v = dict(r["value"])
-        addr_map[kbo] = {
-            "postal_code": str(v.get("postal_code", "") or ""),
-            "city": str(v.get("city", "") or ""),
-        }
+        postal = str(v.get("postal_code", "") or "")
+        city = str(v.get("city", "") or "")
+        if not city and postal:
+            # goudengids cards usually carry a postcode but no municipality (56% of its
+            # address observations), leaving the exported city blank for a third of rows
+            # even though the postcode that selected them is right there. Only
+            # unambiguous postcodes resolve, so this never invents a municipality.
+            city = _titlecase_city(city_for_postal_code(postal))
+        addr_map[kbo] = {"postal_code": postal, "city": city}
 
     # Build result rows.
     result: list[dict[str, str]] = []

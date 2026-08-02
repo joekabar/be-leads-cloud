@@ -8,14 +8,14 @@
 # pagesdor.be rather than goudengids.be, which needs lang="fr" and a different sector
 # slug set -- a separate piece of work. Brussels is bilingual and has the same issue.
 #
-# brugge is first by request. oostende is second because it is already ~46% complete,
-# so finishing it is cheap and yields a second finished city quickly. The rest follow
-# roughly by company count, so the biggest wins land soonest.
+# oostende is first by request: it is already ~46% complete, so it finishes soonest and
+# becomes the first fully sellable city. brugge follows (~17% done from a 2026-05-17 run).
+# The rest are roughly by company count, so the biggest wins land soonest.
 
 [rotation]
 cities = [
-    "brugge",
     "oostende",
+    "brugge",
     "antwerpen",
     "gent",
     "leuven",

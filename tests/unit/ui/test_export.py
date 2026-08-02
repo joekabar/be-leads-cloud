@@ -9,7 +9,8 @@ from uuid import uuid4
 
 import pytest
 
-from scraper.ui.export import _COLUMNS, _tier, export_csv
+from scraper.pipeline.city_map import city_for_postal_code
+from scraper.ui.export import _COLUMNS, _tier, _titlecase_city, export_csv
 
 
 class TestTier:
@@ -169,6 +170,47 @@ class TestMatchedPlaceholdersAreNotExportedTwice:
         with out.open(encoding="utf-8") as fh:
             rows = list(csv.DictReader(fh))
         assert {r["kbo_number"] for r in rows} == {"0439401387"}
+
+
+class TestCityFallback:
+    """A blank city is filled from the postcode that selected the row.
+
+    goudengids listing cards usually carry a postcode but no municipality — 358,414 of
+    its 642,520 address observations, 56% — so `city` was empty on 495 of 1,340 exported
+    rows despite the postcode being present and having driven the city filter.
+    """
+
+    def test_slug_is_title_cased(self) -> None:
+        assert _titlecase_city("oostende") == "Oostende"
+
+    def test_multi_word_slug(self) -> None:
+        assert _titlecase_city("sint-niklaas") == "Sint-Niklaas"
+
+    def test_none_and_empty_render_blank(self) -> None:
+        assert _titlecase_city(None) == ""
+        assert _titlecase_city("") == ""
+
+    def test_known_postcode_resolves(self) -> None:
+        assert city_for_postal_code("8400") == "oostende"
+
+    def test_unknown_postcode_returns_none(self) -> None:
+        assert city_for_postal_code("00000") is None
+
+    def test_whitespace_is_tolerated(self) -> None:
+        assert city_for_postal_code(" 8400 ") == "oostende"
+
+    def test_ambiguous_postcode_is_not_guessed(self) -> None:
+        """Filling in the wrong municipality is worse than leaving the column blank."""
+        from scraper.pipeline import city_map
+
+        original_map, original_rev = city_map._MAP, city_map._REVERSE
+        try:
+            city_map._MAP = {"alpha": ["1234"], "beta": ["1234"], "gamma": ["5678"]}
+            city_map._REVERSE = {}
+            assert city_map.city_for_postal_code("1234") is None
+            assert city_map.city_for_postal_code("5678") == "gamma"
+        finally:
+            city_map._MAP, city_map._REVERSE = original_map, original_rev
 
 
 class TestActivityColumns:

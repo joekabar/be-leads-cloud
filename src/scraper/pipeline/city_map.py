@@ -14,6 +14,8 @@ import tomllib
 from pathlib import Path
 
 _MAP: dict[str, list[str]] = {}
+#: postal code -> city slug, built lazily from _MAP; only unambiguous codes are kept.
+_REVERSE: dict[str, str] = {}
 
 
 def _load() -> dict[str, list[str]]:
@@ -46,3 +48,26 @@ def get_postal_codes(city_slug: str) -> list[str] | None:
     if not _MAP:
         _MAP = _load()
     return _MAP.get(city_slug.lower())
+
+
+def city_for_postal_code(postal_code: str) -> str | None:
+    """Return the city slug a postal code belongs to, or None.
+
+    The inverse of :func:`get_postal_codes`. goudengids listing cards frequently carry a
+    postcode but no municipality — 358,414 of its 642,520 address observations, 56% — so
+    the exported ``city`` column was blank for a third of rows even though the postcode
+    that put them in the file was right there.
+
+    A postcode shared by several configured cities returns None rather than guessing:
+    filling in the wrong municipality is worse than leaving the column empty.
+    """
+    global _MAP, _REVERSE
+    if not _REVERSE:
+        if not _MAP:
+            _MAP = _load()
+        owners: dict[str, set[str]] = {}
+        for slug, codes in _MAP.items():
+            for code in codes:
+                owners.setdefault(str(code).strip(), set()).add(slug)
+        _REVERSE = {code: next(iter(s)) for code, s in owners.items() if len(s) == 1}
+    return _REVERSE.get(str(postal_code).strip())

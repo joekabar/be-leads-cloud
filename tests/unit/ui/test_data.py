@@ -89,6 +89,53 @@ class TestLatestFinancial:
         assert _latest_financial(obs, "employees") == 42
 
 
+class TestLatestFinancialReadsTheProducedShape:
+    """The reader must use the key nbb_authentic actually writes.
+
+    `sources/nbb_authentic/transformer.py` emits
+    ``{"value": <amount>, "currency": "EUR", "filing_ref": ..., "model_type": ...}``.
+    Both readers looked for "eur"/"count" instead, which exist on **1 of 73,939**
+    financial observations in production -- so revenue and employees were blank for every
+    company in both the CSV and the UI, everywhere, always.
+
+    The pre-existing tests above encoded the same imagined shape as the code, which is
+    precisely why the defect survived a 1,200-test suite at 86% coverage.
+    """
+
+    def test_revenue_uses_the_value_key(self) -> None:
+        obs = [
+            _obs(
+                "revenue_2024",
+                {
+                    "value": 4_669_652,
+                    "currency": "EUR",
+                    "filing_ref": "2025-00109249",
+                    "model_type": "OTHER",
+                },
+            )
+        ]
+        assert _latest_financial(obs, "revenue") == 4_669_652
+
+    def test_employees_uses_the_value_key(self) -> None:
+        obs = [_obs("employees_2024", {"value": 31.7, "filing_ref": "2025-00109249"})]
+        assert _latest_financial(obs, "employees") == 31.7
+
+    def test_latest_year_wins_with_the_real_shape(self) -> None:
+        obs = [
+            _obs("revenue_2023", {"value": 1_000_000, "currency": "EUR"}),
+            _obs("revenue_2024", {"value": 2_000_000, "currency": "EUR"}),
+        ]
+        assert _latest_financial(obs, "revenue") == 2_000_000
+
+    def test_legacy_eur_key_still_honoured(self) -> None:
+        """One production row uses it; dropping support would regress that row."""
+        assert _latest_financial([_obs("revenue_2024", {"eur": 500})], "revenue") == 500
+
+    def test_zero_is_a_real_value_not_a_miss(self) -> None:
+        """`or` chaining would treat a genuine 0 turnover as absent."""
+        assert _latest_financial([_obs("revenue_2024", {"value": 0})], "revenue") == 0
+
+
 class TestAggregateRow:
     def test_full_row(self) -> None:
         obs = [
