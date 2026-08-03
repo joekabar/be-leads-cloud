@@ -67,7 +67,9 @@ line-length = 100
 select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM", "TCH", "ASYNC", "S", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "TC002", "TC003", "S603", "S607", "S608"]
+# S108 (/tmp paths): tests assert on literal path strings for argument parsing; nothing
+# is written there. Real temp files use pytest's tmp_path fixture.
+"tests/**" = ["S101", "S108", "TC002", "TC003", "S603", "S607", "S608"]
 
 [tool.ruff.lint.flake8-type-checking]
 runtime-evaluated-base-classes = ["pydantic.BaseModel"]

@@ -128,6 +128,17 @@ async def validate_companies(
                 except DdgRateLimitedError as exc:
                     log.warning("ddg_rate_limited_skipping", kbo=kbo, name=name)
                     report.errors.append(str(exc))
+                except Exception as exc:
+                    # One company's search must never cost the batch its whole
+                    # cross-validation pass. Anything unexpected here is recorded and
+                    # skipped, matching the rate-limit branch above.
+                    log.warning(
+                        "ddg_search_failed_skipping",
+                        kbo=kbo,
+                        name=name,
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                    report.errors.append(f"{kbo}: {type(exc).__name__}: {exc}")
 
             if engine_used is None:
                 log.debug("no_engine_available_skipping", kbo=kbo)

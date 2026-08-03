@@ -2,12 +2,63 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from unittest.mock import patch
 
 import pytest
 
-from scraper.pipeline.batch_cli import _build_parser, cli_main
+from scraper.pipeline.batch_cli import _build_parser, _resolve_api_keys, cli_main
+
+
+class TestApiKeyResolution:
+    """API keys must be read *after* .env has been loaded into os.environ.
+
+    `cli_main` read BRAVE_SEARCH_API_KEY and NBB_CBSO_API_KEY from os.environ on the two
+    lines *above* the `load_settings()` call that runs `load_dotenv()`. Both were
+    therefore always None for anyone keeping their keys in .env — which is what the
+    repo's own .env.example tells you to do.
+
+    Consequences, both silent: goudengids cross-validation fell back to DuckDuckGo alone
+    and died with "No results found.", and the batch pipeline never ran NBB financial
+    enrichment at all, because `_phase_c1_nbb` skips when no key is present.
+    """
+
+    def test_cli_arg_wins_over_environment(self) -> None:
+        with patch.dict(os.environ, {"BRAVE_SEARCH_API_KEY": "from-env"}, clear=False):
+            brave, _ = _resolve_api_keys("from-arg", None)
+        assert brave == "from-arg"
+
+    def test_falls_back_to_environment(self) -> None:
+        with patch.dict(os.environ, {"BRAVE_SEARCH_API_KEY": "from-env"}, clear=False):
+            brave, _ = _resolve_api_keys(None, None)
+        assert brave == "from-env"
+
+    def test_nbb_key_resolves_the_same_way(self) -> None:
+        with patch.dict(os.environ, {"NBB_CBSO_API_KEY": "nbb-env"}, clear=False):
+            _, nbb = _resolve_api_keys(None, None)
+        assert nbb == "nbb-env"
+
+    def test_absent_key_is_none(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            brave, nbb = _resolve_api_keys(None, None)
+        assert brave is None
+        assert nbb is None
+
+    def test_keys_set_only_by_dotenv_are_picked_up(self) -> None:
+        """The regression: .env populates os.environ during load_settings()."""
+        with patch.dict(os.environ, {}, clear=True):
+
+            def _fake_load_settings() -> object:
+                os.environ["BRAVE_SEARCH_API_KEY"] = "key-from-dotenv"
+                os.environ["NBB_CBSO_API_KEY"] = "nbb-from-dotenv"
+                return object()
+
+            _fake_load_settings()
+            brave, nbb = _resolve_api_keys(None, None)
+
+        assert brave == "key-from-dotenv"
+        assert nbb == "nbb-from-dotenv"
 
 
 class TestBuildParser:

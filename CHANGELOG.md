@@ -30,6 +30,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.47 s, total 1.9 min, no timeout and no malformed JSONB. The production exception remains
   unidentified precisely because it was suppressed; this change is what will name it.
 
+### Fixed — API keys were read before .env was loaded, disabling Brave *and* NBB
+
+- `batch_cli.py` read `BRAVE_SEARCH_API_KEY` and `NBB_CBSO_API_KEY` from `os.environ` on
+  the two lines **above** the `load_settings()` call that runs `load_dotenv()`. Both were
+  therefore always `None` for anyone keeping keys in `.env` — which is exactly what
+  `.env.example` instructs.
+- Two silent consequences. Phase C2 fell back to DuckDuckGo alone and died; and
+  `_phase_c1_nbb` skips when no key is present, so **the batch pipeline has never run NBB
+  financial enrichment at all**. Every nightly run since batch mode landed was missing
+  both.
+- Key resolution moved after `load_settings()` and extracted as `_resolve_api_keys()` so
+  the ordering requirement is stated where it can be tested rather than implied by line
+  order. Verified live: the Brave key returns HTTP 200 with real results, and a real
+  Phase C2 pass over three placeholders made 3 Brave queries, inserted 6 observations and
+  confirmed 3 websites with no errors.
+- **Not a billing problem.** The key is valid and within quota; the request never left the
+  process.
+
+### Fixed — "No results found." aborted the entire cross-validation phase
+
+- `ddgs` raises `DDGSException("No results found.")` when a query simply matches nothing.
+  `DdgClient.search()` caught only `RatelimitException`, so that escaped uncaught past the
+  caller's handler and killed Phase C2 outright: every batch from 2026-07-30 to 08-02
+  logged `phase_c2_failed error='No results found.'` and cross-validated nothing.
+- A query matching nothing is an outcome, not a failure — it now returns `[]`.
+  `RatelimitException` subclasses `DDGSException`, so it is caught first and still raises
+  `DdgRateLimitedError`; a test pins that ordering.
+- The per-company loop in `ingester.py` also catches unexpected errors, records them on the
+  report and continues. One company's search must never cost the batch its whole pass —
+  the same failure shape as the Phase D/E/F suppression fixed earlier this week.
+
 ### Fixed — revenue and employees were blank in every export and every UI row, always
 
 - `sources/nbb_authentic/transformer.py` writes `{"value": <amount>, "currency": "EUR", …}`,

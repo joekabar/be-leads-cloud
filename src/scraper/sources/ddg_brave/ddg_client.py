@@ -20,6 +20,14 @@ except ImportError:  # pragma: no cover
         pass
 
 
+try:
+    from ddgs.exceptions import DDGSException as _DdgsException
+except ImportError:  # pragma: no cover
+
+    class _DdgsException(Exception):  # type: ignore[no-redef]  # noqa: N818
+        pass
+
+
 class DdgRateLimitedError(ScraperError):
     """DDG rate limited after one retry; caller should skip this query."""
 
@@ -64,3 +72,11 @@ class DdgClient:
                 return await asyncio.to_thread(_run)
             except _DdgsRateLimitException as exc:
                 raise DdgRateLimitedError("DuckDuckGo rate limited after retry") from exc
+        except _DdgsException as exc:
+            # ddgs raises DDGSException("No results found.") for a query that simply
+            # matched nothing. That is an outcome, not a failure — but it escaped
+            # uncaught, past the caller's rate-limit handler, and aborted the whole
+            # Phase C2 pass: every 2026-07-30..08-02 batch logged
+            # `phase_c2_failed error='No results found.'` and cross-validated nothing.
+            logger.info("ddg_no_results", query=query, detail=str(exc))
+            return []

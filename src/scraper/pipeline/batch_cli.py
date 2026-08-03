@@ -87,6 +87,19 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _resolve_api_keys(brave_arg: str | None, nbb_arg: str | None) -> tuple[str | None, str | None]:
+    """Return (brave_key, nbb_key): explicit CLI argument first, else the environment.
+
+    Call this only after ``load_settings()``, which loads ``.env`` into ``os.environ``.
+    Reading the environment before that yields None for anyone who keeps their keys in
+    ``.env`` — exactly as ``.env.example`` instructs.
+    """
+    return (
+        brave_arg or os.environ.get("BRAVE_SEARCH_API_KEY"),
+        nbb_arg or os.environ.get("NBB_CBSO_API_KEY"),
+    )
+
+
 def cli_main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
@@ -128,13 +141,15 @@ def cli_main() -> None:
             print(f"Error: invalid --snapshot-date {args.snapshot_date!r}", file=sys.stderr)
             sys.exit(2)
 
-    brave_key = args.brave_key or os.environ.get("BRAVE_SEARCH_API_KEY")
-    nbb_key = args.nbb_key or os.environ.get("NBB_CBSO_API_KEY")
-
     from scraper.lib.config import load_settings
 
+    # load_settings() runs load_dotenv(), which is what puts .env into os.environ. The
+    # key reads below MUST stay after it: they used to sit two lines above, so both keys
+    # were always None for anyone keeping them in .env — silently disabling Brave
+    # cross-validation and NBB financial enrichment for every batch run.
     settings = load_settings()
     dsn = args.database_url or settings.database_url
+    brave_key, nbb_key = _resolve_api_keys(args.brave_key, args.nbb_key)
 
     async def _run() -> None:
         import json as _json
