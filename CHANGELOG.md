@@ -30,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.47 s, total 1.9 min, no timeout and no malformed JSONB. The production exception remains
   unidentified precisely because it was suppressed; this change is what will name it.
 
+### Added — Brave runs report their own quota
+
+- `BraveClient` records `x-ratelimit-remaining` / `-limit` / `-policy` and logs them once
+  per client as `brave_quota`, so "did the quota hold?" is answerable from the run log
+  afterwards instead of needing a live probe. Without it, exhaustion only ever surfaces as
+  an HTTP 403 after the damage is done.
+- Measured on the live key: `x-ratelimit-policy: 50;w=1, 0;w=2678400` — **50 queries per
+  second**, with the monthly window reporting 0 (not the free tier, which is 1/s and
+  2,000/month). Against a measured burn of ~250 queries/day, per-second headroom is five
+  orders of magnitude clear.
+- Burn rate is bounded by *new* placeholders per run, not the total backlog: Phase C2
+  selects `kbo_number LIKE '9%' AND observed_at >= started_at`. Recent days produced
+  109–257 new placeholders, and `--ddg-brave-skip-recent-hours 168` suppresses repeats.
+
 ### Fixed — API keys were read before .env was loaded, disabling Brave *and* NBB
 
 - `batch_cli.py` read `BRAVE_SEARCH_API_KEY` and `NBB_CBSO_API_KEY` from `os.environ` on

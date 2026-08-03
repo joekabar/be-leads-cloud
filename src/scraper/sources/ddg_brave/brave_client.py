@@ -45,6 +45,9 @@ class BraveClient:
         self._polite_client = polite_client
         self._subscription_key = subscription_key
         self._country = country
+        #: Last seen "per-second, per-month" remaining pair, for reporting.
+        self.last_quota_remaining: str | None = None
+        self._quota_logged = False
 
     async def search(
         self,
@@ -86,4 +89,27 @@ class BraveClient:
         except RetriesExhaustedError as exc:
             raise BraveRateLimitedError("Brave API rate limited after retries (HTTP 429)") from exc
 
+        self._record_quota(response)
         return dict(response.json())
+
+    def _record_quota(self, response: Any) -> None:
+        """Log Brave's rate-limit headers once per client, so runs are self-reporting.
+
+        Brave sends "per-second, per-month" pairs, e.g. ``x-ratelimit-policy:
+        50;w=1, 0;w=2678400``. Recording them means "did the quota hold?" is answerable
+        from the run log afterwards instead of needing a live probe: without this, quota
+        exhaustion would only ever surface as an HTTP 403 after the fact.
+        """
+        headers = getattr(response, "headers", {}) or {}
+        remaining = headers.get("x-ratelimit-remaining")
+        if not remaining:
+            return
+        self.last_quota_remaining = str(remaining)
+        if not self._quota_logged:
+            self._quota_logged = True
+            logger.info(
+                "brave_quota",
+                remaining=str(remaining),
+                limit=str(headers.get("x-ratelimit-limit", "")),
+                policy=str(headers.get("x-ratelimit-policy", "")),
+            )
