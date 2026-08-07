@@ -16,6 +16,7 @@ from scraper.db.repositories.runs import RunsRepo
 from scraper.lib.data_paths import SECTORS_TOML as _SECTORS_TOML
 from scraper.lib.errors import BlockedError
 from scraper.pipeline.city_map import get_postal_codes
+from scraper.pipeline.sector_queue import COMPLETE_MARKER, INTERRUPTED_MARKER
 from scraper.sources.goudengids.parser import parse_listing_page
 from scraper.sources.goudengids.transformer import card_to_observations, make_placeholder_kbo
 
@@ -152,6 +153,10 @@ async def ingest_sector_city(
 
     buffer: list[Observation] = []
     seen_placeholders: set[str] = set()
+    # Did this run read the listing to the end, or was it cut short? Only a cut-short run
+    # deserves a retry — a run that finished has seen everything the sector offers, even
+    # if every card was out of city or already known. See pipeline/sector_queue.py.
+    interrupted = False
 
     try:
         async with fetcher:
@@ -160,9 +165,11 @@ async def ingest_sector_city(
                     listing = await fetcher.fetch_page(sector_slug, city_slug, page_num, lang=lang)
                 except BlockedError:
                     log.error("goudengids_blocked_aborting", page=page_num)
+                    interrupted = True
                     break
                 except (PlaywrightTimeoutError, TimeoutError):
                     log.warning("goudengids_page_timeout_aborting", page=page_num)
+                    interrupted = True
                     break
 
                 report.pages_scanned += 1
@@ -208,7 +215,11 @@ async def ingest_sector_city(
     finally:
         if refresh_matview:
             await pool.execute("SELECT refresh_companies_current()")
-        await runs_repo.finish_run(run_id, jobs_done=report.observations_inserted)
+        await runs_repo.finish_run(
+            run_id,
+            jobs_done=report.observations_inserted,
+            notes=INTERRUPTED_MARKER if interrupted else COMPLETE_MARKER,
+        )
 
     report.duration_s = time.monotonic() - t0
     log.info(

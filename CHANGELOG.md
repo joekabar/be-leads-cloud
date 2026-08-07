@@ -30,6 +30,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.47 s, total 1.9 min, no timeout and no malformed JSONB. The production exception remains
   unidentified precisely because it was suppressed; this change is what will name it.
 
+### Fixed — nine of ten nightly slots were stuck re-scraping finished sectors
+
+- The Oostende export sat at **220 kB for three consecutive days** while both nightly runs
+  spent the full WAF budget. On 2026-08-06 the run fetched **2,173 cards across 111 pages
+  and inserted zero observations.** Sectors had been retried up to **11 times** without
+  ever being productive.
+- `completed_sectors()` marked a sector done only when `jobs_done > 0`, but "obs=0"
+  conflates three unrelated outcomes and only one of them deserves a retry:
+  1. **No local businesses.** goudengids pads a thin local search with nationwide results.
+     `machinebouwers` returned 500 cards of which **all 500** were outside Oostende, so the
+     postcode filter correctly discarded every one. It can never yield a local lead.
+  2. **Already covered.** `bouwbedrijven` had **84 in-city cards** pass the filter and still
+     insert nothing — those firms were already known from other sectors. Complete, not
+     failed. Dedup is per *company*, not per sector, and one firm appears under many.
+  3. **Blocked or timed out.** The genuine retry case.
+- Completion, not productivity, is now the signal. `ingester.py` records
+  `[complete]`/`[interrupted]` in `run_log.notes` — it already distinguished `BlockedError`
+  and `PlaywrightTimeoutError` from a normal return, that fact was simply discarded — and
+  `completed_sectors()` retires anything that finished, whatever it inserted.
+- Rows without a marker fall back to the old productivity rule, so history stays valid and
+  the queue self-heals after one further run per sector rather than needing a backfill.
+- The diagnosis was invisible because `cards_out_of_city` was tracked in
+  `GoudengidsReport` and logged by the *source* ingester, but the batch-level
+  `goudengids_sector_done` line reported only `cards`/`obs`/`pages`.
+
 ### Added — Brave runs report their own quota
 
 - `BraveClient` records `x-ratelimit-remaining` / `-limit` / `-policy` and logs them once

@@ -15,6 +15,7 @@ import pytest
 
 from scraper.pipeline.sector_queue import (
     _completed_window_clause,
+    completed_sectors,
     select_next_city,
     select_pending_sectors,
 )
@@ -198,6 +199,57 @@ class TestRefreshOnlyOnCommand:
     def test_zero_hours_means_all_time_not_nothing(self) -> None:
         """0 must not become 'started_at >= now()', which would mark everything pending."""
         assert _completed_window_clause(0) == ""
+
+
+class TestSectorsThatFinishedAreDone:
+    """A sector that read its listing to the end is covered, whatever it inserted.
+
+    "obs=0" conflated three unrelated outcomes, and the queue retried all of them:
+
+    1. **No local businesses.** goudengids pads a thin local search with nationwide
+       results, so `machinebouwers` returned 500 cards of which 500 were outside
+       Oostende. It can never yield a local lead, yet ran twice a day forever.
+    2. **Already covered.** `bouwbedrijven` had 84 in-city cards pass the postcode
+       filter and still insert nothing — those firms were already in the database from
+       other sectors. The sector is complete, not failed.
+    3. **Blocked or timed out.** The only case that genuinely deserves a retry.
+
+    Nine of ten nightly slots were stuck on cases 1 and 2. The export flatlined at
+    220 kB for three days while still spending the whole WAF budget.
+
+    Completion, not productivity, is therefore the signal: a run that was not cut short
+    has seen everything the sector offers.
+    """
+
+    def test_completed_run_counts_even_with_zero_observations(self) -> None:
+        rows = [{"sector_slug": "a", "jobs_done": 0, "notes": "[complete]"}]
+        assert completed_sectors(rows) == {"a"}
+
+    def test_interrupted_run_still_retries(self) -> None:
+        rows = [{"sector_slug": "a", "jobs_done": 0, "notes": "[interrupted]"}]
+        assert completed_sectors(rows) == set()
+
+    def test_productive_run_counts_without_a_marker(self) -> None:
+        """Backwards compatibility: historical rows predate the marker."""
+        assert completed_sectors([{"sector_slug": "a", "jobs_done": 12}]) == {"a"}
+
+    def test_legacy_zero_row_without_marker_still_retries(self) -> None:
+        """An old unproductive row is ambiguous, so it gets one more run to mark itself."""
+        assert completed_sectors([{"sector_slug": "a", "jobs_done": 0}]) == set()
+
+    def test_one_completed_run_outweighs_earlier_blocks(self) -> None:
+        rows = [
+            {"sector_slug": "a", "jobs_done": 0, "notes": "[interrupted]"},
+            {"sector_slug": "a", "jobs_done": 0, "notes": "[complete]"},
+        ]
+        assert completed_sectors(rows) == {"a"}
+
+    def test_null_notes_are_tolerated(self) -> None:
+        assert completed_sectors([{"sector_slug": "a", "jobs_done": 3, "notes": None}]) == {"a"}
+
+    def test_marker_inside_longer_notes_is_found(self) -> None:
+        rows = [{"sector_slug": "a", "jobs_done": 0, "notes": "ran ok [complete] 25 pages"}]
+        assert completed_sectors(rows) == {"a"}
 
 
 class TestBlockedSectorsAreNotDone:

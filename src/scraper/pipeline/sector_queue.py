@@ -35,34 +35,57 @@ def _completed_window_clause(within_hours: int | None) -> str:
 
 
 _SQL_RECENT_RUNS = """
-    SELECT sector_slug, jobs_done
+    SELECT sector_slug, jobs_done, notes
     FROM run_log
     WHERE source = 'goudengids'
       AND lower(city_slug) = lower($1)
 """
 
 _SQL_COMPLETED_BY_CITY = """
-    SELECT lower(city_slug) AS city, sector_slug, jobs_done
+    SELECT lower(city_slug) AS city, sector_slug, jobs_done, notes
     FROM run_log
     WHERE source = 'goudengids'
       AND lower(city_slug) = ANY($1::text[])
 """
 
 
-def completed_sectors(rows: Iterable[Mapping[str, Any]]) -> set[str]:
-    """Sectors that actually produced observations, from ``run_log`` rows.
+#: Written to ``run_log.notes`` by a goudengids run that read its listing to the end.
+COMPLETE_MARKER = "[complete]"
+#: Written when a run was cut short by an Imperva block or a page timeout.
+INTERRUPTED_MARKER = "[interrupted]"
 
-    ``jobs_done`` carries the observation count for the run. Zero means the sector
-    yielded nothing — either genuinely empty locally, or blocked before it could read
-    anything. Both are worth retrying on a later night; the WAF case especially, since
-    treating a block as success would lose the sector permanently.
+
+def completed_sectors(rows: Iterable[Mapping[str, Any]]) -> set[str]:
+    """Sectors already covered for a city, from ``run_log`` rows.
+
+    A sector counts as done when a run either produced observations **or** finished
+    without being cut short. Productivity alone is the wrong test: "obs=0" conflates
+    three unrelated outcomes and only one of them deserves a retry.
+
+    - *No local businesses.* goudengids pads a thin local search with nationwide
+      results, so ``machinebouwers`` returned 500 cards of which all 500 were outside
+      Oostende. It can never yield a local lead, yet it re-ran twice a day forever.
+    - *Already covered.* ``bouwbedrijven`` had 84 in-city cards pass the postcode filter
+      and still insert nothing, because those firms were already known from other
+      sectors. Complete, not failed.
+    - *Blocked or timed out.* The genuine retry case, and the only one now retried.
+
+    Nine of ten nightly slots were stuck on the first two, and the Oostende export sat at
+    220 kB for three days while still spending the full WAF budget each night.
+
+    Rows with no marker fall back to the old productivity rule, so historical runs stay
+    valid: an unproductive legacy row is ambiguous and simply earns one more attempt,
+    which then records a marker.
     """
     done: set[str] = set()
     for row in rows:
         slug = row.get("sector_slug")
         if not slug:
             continue
-        if int(row.get("jobs_done") or 0) > 0:
+        notes = str(row.get("notes") or "")
+        if INTERRUPTED_MARKER in notes:
+            continue
+        if COMPLETE_MARKER in notes or int(row.get("jobs_done") or 0) > 0:
             done.add(str(slug))
     return done
 

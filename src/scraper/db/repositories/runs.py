@@ -44,18 +44,27 @@ class RunsRepo:
         *,
         jobs_done: int = 0,
         jobs_failed: int = 0,
+        notes: str | None = None,
     ) -> None:
-        """Mark a run as finished and record job counts."""
+        """Mark a run as finished and record job counts.
+
+        *notes* carries an outcome marker (see ``pipeline/sector_queue.py``). It records
+        whether the run read its source to the end or was cut short, which productivity
+        counts alone cannot express: a sector can legitimately finish with zero new
+        observations and must not then be retried forever.
+        """
         await self._pool.execute(
             """
             UPDATE run_log
-            SET ended_at = $2, jobs_done = $3, jobs_failed = $4
+            SET ended_at = $2, jobs_done = $3, jobs_failed = $4,
+                notes = COALESCE($5, notes)
             WHERE run_id = $1
             """,
             run_id,
             datetime.now(tz=UTC),
             jobs_done,
             jobs_failed,
+            notes,
         )
 
     async def get(self, run_id: UUID) -> Run | None:
