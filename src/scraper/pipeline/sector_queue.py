@@ -77,6 +77,7 @@ def completed_sectors(rows: Iterable[Mapping[str, Any]]) -> set[str]:
     valid: an unproductive legacy row is ambiguous and simply earns one more attempt,
     which then records a marker.
     """
+    aliases = _goudengids_slug_to_config_key()
     done: set[str] = set()
     for row in rows:
         slug = row.get("sector_slug")
@@ -86,8 +87,45 @@ def completed_sectors(rows: Iterable[Mapping[str, Any]]) -> set[str]:
         if INTERRUPTED_MARKER in notes:
             continue
         if COMPLETE_MARKER in notes or int(row.get("jobs_done") or 0) > 0:
-            done.add(str(slug))
+            # run_log stores the URL slug; the queue works in config keys. A slug shared
+            # by several sectors completes all of them — same URL, same data.
+            done.update(aliases.get(str(slug), {str(slug)}))
     return done
+
+
+def _goudengids_slug_to_config_key() -> dict[str, set[str]]:
+    """Map each goudengids slug back to every config sector key that uses it.
+
+    One-to-many on purpose: `recyclagebedrijven` and `recyclagebedrijven-industrieel`
+    resolve to the same goudengids slug, so a run under it fetches identical URLs and
+    genuinely covers both. Returning only one would leave the other stuck forever.
+
+    ``run_log.sector_slug`` records the slug used in the **URL**, not the config key:
+    ``_run_goudengids_sector`` resolves ``bouwbedrijven`` to ``aannemers`` before calling
+    the ingester. Six sectors differ that way — bouwbedrijven/aannemers,
+    logistiekverleners/logistiek, machinebouwers/machinebouw,
+    metaalverwerkingsbedrijven/metaalbewerking, recyclagebedrijven-industrieel/
+    recyclagebedrijven and transportbedrijven-zwaar/vrachttransport — and every one of
+    them was therefore invisible to the queue, which compares against config keys. They
+    could never be marked done however much they produced, so they occupied a slot on
+    every run indefinitely.
+    """
+    import tomllib
+
+    from scraper.lib.data_paths import SECTORS_TOML
+
+    with SECTORS_TOML.open("rb") as fh:
+        data = tomllib.load(fh)
+
+    mapping: dict[str, set[str]] = {}
+    for key, entry in data.items():
+        if not isinstance(entry, dict) or entry.get("goudengids_sector_not_indexed"):
+            continue
+        for field in ("nl_slug", "fr_slug"):
+            slug = str(entry.get(field) or "").strip()
+            if slug:
+                mapping.setdefault(slug, set()).add(key)
+    return mapping
 
 
 def goudengids_unscrapeable_sectors(all_sectors: Iterable[str]) -> set[str]:

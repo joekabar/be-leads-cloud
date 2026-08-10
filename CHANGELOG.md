@@ -30,6 +30,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.47 s, total 1.9 min, no timeout and no malformed JSONB. The production exception remains
   unidentified precisely because it was suppressed; this change is what will name it.
 
+### Fixed — six sectors were invisible to the queue because run_log stores the URL slug
+
+- `_run_goudengids_sector` resolves a config key to its goudengids slug *before* calling
+  the ingester, so `start_run` records `aannemers`, not `bouwbedrijven`. The queue compares
+  against config keys, so the six sectors whose slug differs — bouwbedrijven/aannemers,
+  logistiekverleners/logistiek, machinebouwers/machinebouw,
+  metaalverwerkingsbedrijven/metaalbewerking, recyclagebedrijven-industrieel/
+  recyclagebedrijven, transportbedrijven-zwaar/vrachttransport — **could never be marked
+  done however much they produced**, and held a slot on every run indefinitely.
+- Five of those six are exactly the sectors seen stuck across eleven consecutive runs.
+  **This, not the "obs=0" rule, was their root cause**; the previous entry's analysis was
+  real but secondary.
+- `completed_sectors()` now normalises the recorded slug back to config keys. The map is
+  deliberately one-to-many: `recyclagebedrijven` is both a config key and the alias for
+  `recyclagebedrijven-industrieel`, and since both fetch the same URL one run genuinely
+  covers both.
+
+### Fixed — a DNS outage marked 25 real sectors as complete
+
+- On 2026-08-09/10 every sector failed with `net::ERR_NAME_NOT_RESOLVED`. That raises
+  during fetcher warmup — *before* the page loop that sets the interrupted flag — so the
+  `finally` block wrote `[complete]` regardless, retiring 25 genuine sectors (restaurants,
+  scholen, supermarkten, tandartsen, slagers, sanitair…) that had done no work at all.
+  Introduced by the previous change; caught within a day by the export flatlining again.
+- The marker now requires positive evidence: not interrupted **and** `pages_scanned > 0`.
+  That counter only increments after a successful fetch, so any failure raising out of the
+  function leaves it at 0 and can never be mistaken for coverage.
+- Repaired the 30 affected `run_log` rows in place. The direction is deliberate — re-running
+  a sector costs a little WAF budget, wrongly retiring one loses its leads permanently.
+- Root cause of the outage itself is environmental, not code: NordVPN is running and the
+  host resolves via a private DNS server (172.26.164.17). Resolution and a live fetch both
+  succeed now, so it was transient — but the pipeline had no way to distinguish "the site
+  said no" from "we never reached the site".
+
 ### Fixed — nine of ten nightly slots were stuck re-scraping finished sectors
 
 - The Oostende export sat at **220 kB for three consecutive days** while both nightly runs

@@ -252,6 +252,67 @@ class TestSectorsThatFinishedAreDone:
         assert completed_sectors(rows) == {"a"}
 
 
+class TestRunLogSlugAliases:
+    """run_log records the URL slug; the queue works in config keys.
+
+    `_run_goudengids_sector` resolves `bouwbedrijven` to `aannemers` before calling the
+    ingester, which is what `start_run` then stores. Six sectors differ that way, and all
+    six were invisible to the queue: they could never be marked done however much they
+    produced, so each held a nightly slot indefinitely. Five of them were the sectors
+    observed stuck across eleven consecutive runs.
+    """
+
+    def test_alias_row_marks_the_config_key_done(self) -> None:
+        rows = [{"sector_slug": "aannemers", "jobs_done": 40, "notes": "[complete]"}]
+        assert completed_sectors(rows) == {"bouwbedrijven"}
+
+    def test_every_known_alias_resolves(self) -> None:
+        expected = {
+            "aannemers": "bouwbedrijven",
+            "logistiek": "logistiekverleners",
+            "machinebouw": "machinebouwers",
+            "metaalbewerking": "metaalverwerkingsbedrijven",
+            "vrachttransport": "transportbedrijven-zwaar",
+        }
+        for slug, key in expected.items():
+            rows = [{"sector_slug": slug, "jobs_done": 1}]
+            assert completed_sectors(rows) == {key}, f"{slug} must map to {key}"
+
+    def test_non_alias_slug_is_unchanged(self) -> None:
+        assert completed_sectors([{"sector_slug": "advocaten", "jobs_done": 5}]) == {"advocaten"}
+
+    def test_a_shared_slug_completes_every_sector_using_it(self) -> None:
+        """recyclagebedrijven is a config key *and* the alias for the -industrieel one.
+
+        Both resolve to the same URL, so one run genuinely covers both. Mapping to a
+        single key would leave the other pending forever.
+        """
+        done = completed_sectors([{"sector_slug": "recyclagebedrijven", "jobs_done": 7}])
+        assert done == {"recyclagebedrijven", "recyclagebedrijven-industrieel"}
+
+
+class TestCompleteRequiresEvidenceOfWork:
+    """A run that never reached the site must not count as coverage.
+
+    On 2026-08-09/10 every sector failed with net::ERR_NAME_NOT_RESOLVED — a DNS outage
+    raising during warmup, before the page loop. The marker was still written, retiring
+    25 real sectors (restaurants, scholen, supermarkten, tandartsen…) that had done no
+    work whatsoever. `pages_scanned` only increments after a successful fetch, so it is
+    the evidence that the listing was actually read.
+    """
+
+    def test_zero_page_run_is_not_coverage(self) -> None:
+        rows = [{"sector_slug": "restaurants", "jobs_done": 0, "notes": "[interrupted]"}]
+        assert completed_sectors(rows) == set()
+
+    def test_a_later_good_run_still_rescues_the_sector(self) -> None:
+        rows = [
+            {"sector_slug": "restaurants", "jobs_done": 0, "notes": "[interrupted]"},
+            {"sector_slug": "restaurants", "jobs_done": 0, "notes": "[complete]"},
+        ]
+        assert completed_sectors(rows) == {"restaurants"}
+
+
 class TestBlockedSectorsAreNotDone:
     def test_blocked_sector_is_retried(self) -> None:
         """A blocked run reached the WAF, not the data. If it counted as done the

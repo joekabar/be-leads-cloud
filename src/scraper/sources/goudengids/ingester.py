@@ -215,10 +215,18 @@ async def ingest_sector_city(
     finally:
         if refresh_matview:
             await pool.execute("SELECT refresh_companies_current()")
+        # "Complete" requires proof the listing was actually read: not cut short AND at
+        # least one page fetched. pages_scanned only increments after a successful fetch,
+        # so a failure that raises out of this function entirely — a DNS outage during
+        # warmup, say — leaves it at 0 and cannot be mistaken for coverage. On 2026-08-09
+        # and 08-10 exactly that happened: net::ERR_NAME_NOT_RESOLVED on every sector,
+        # yet an earlier version of this line still wrote [complete] and retired 25 real
+        # sectors that had done no work at all.
+        finished_cleanly = not interrupted and report.pages_scanned > 0
         await runs_repo.finish_run(
             run_id,
             jobs_done=report.observations_inserted,
-            notes=INTERRUPTED_MARKER if interrupted else COMPLETE_MARKER,
+            notes=COMPLETE_MARKER if finished_cleanly else INTERRUPTED_MARKER,
         )
 
     report.duration_s = time.monotonic() - t0
