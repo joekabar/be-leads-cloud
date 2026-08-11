@@ -74,7 +74,11 @@ class BatchConfig:
     extra_nace: list[str] = field(default_factory=list)
     snapshot_date: date | None = None
     lang: Literal["nl", "fr"] = "nl"
-    max_pages: int = 25
+    # Lowered from 25: pages beyond ~12 were almost entirely goudengids' nationwide
+    # padding, which the postcode filter discards. Combined with the in-city bail-out in
+    # the ingester, this stops a shrinking WAF budget being spent on data that is thrown
+    # away — the block rate had gone from ~120 pages per block to ~11.
+    max_pages: int = 12
     nbb_subscription_key: str | None = None
     brave_subscription_key: str | None = None
     database_url: str | None = None

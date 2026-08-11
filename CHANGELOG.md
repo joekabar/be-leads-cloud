@@ -30,6 +30,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.47 s, total 1.9 min, no timeout and no malformed JSONB. The production exception remains
   unidentified precisely because it was suppressed; this change is what will name it.
 
+### Performance — stop paging once results leave the requested city
+
+- goudengids pads a thin local search with nationwide results, which the postcode filter
+  then discards. Those were the scraper's most expensive and least productive requests:
+  `machinebouwers` fetched **25 pages and 500 cards of which all 500 were out of city**;
+  `logistiekverleners` kept 35 of 500.
+- That mattered more as the WAF tightened. Pages fetched per block fell from **~120
+  (2026-08-05) to ~11 (2026-08-11)** while total pages per run barely moved — the same
+  volume now draws 6–8× the blocks, so budget spent on discarded pages directly starves
+  the sectors that would have produced.
+- The ingester now abandons a sector after `max_empty_pages` (default 3) consecutive pages
+  with no in-city card. Local results rank first, so a run of empty pages means the useful
+  part is already behind us. The streak resets whenever a local card reappears.
+- Stopping early counts as `[complete]`, not `[interrupted]`: it is a decision, not a
+  failure, and re-running would reach the same conclusion. `GoudengidsReport.stopped_early`
+  records it and `goudengids_left_city_stopping` logs it.
+- `max_pages` drops from 25 to **12** across `BatchConfig` and the batch CLI, for the same
+  reason.
+- This reduces load rather than working around the block: it stops requesting pages that
+  were always going to be thrown away.
+
 ### Fixed — six sectors were invisible to the queue because run_log stores the URL slug
 
 - `_run_goudengids_sector` resolves a config key to its goudengids slug *before* calling

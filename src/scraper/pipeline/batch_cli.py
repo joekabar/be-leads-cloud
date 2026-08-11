@@ -47,7 +47,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="KBO snapshot date to use (default: latest staged date).",
     )
     p.add_argument("--lang", choices=["nl", "fr"], default="nl")
-    p.add_argument("--max-pages", type=int, default=25, metavar="N")
+    p.add_argument(
+        "--max-pages",
+        type=int,
+        default=12,
+        metavar="N",
+        help="Listing pages per sector (default 12; beyond that goudengids serves mostly "
+        "out-of-city padding).",
+    )
     p.add_argument("--database-url", default=None)
     p.add_argument("--brave-key", default=None, help="env: BRAVE_SEARCH_API_KEY")
     p.add_argument("--nbb-key", default=None, help="env: NBB_CBSO_API_KEY")

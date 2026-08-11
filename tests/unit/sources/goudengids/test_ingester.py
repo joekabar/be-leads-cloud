@@ -7,12 +7,31 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from scraper.pipeline.sector_queue import COMPLETE_MARKER
 from scraper.sources.goudengids.ingester import (
     GoudengidsReport,
     _recent_placeholder_kbos,
     ingest_sector_city,
     load_valid_sectors,
 )
+from scraper.sources.goudengids.parser import ListingCardRow
+
+
+def _card(postal: str = "8400", name: str = "Test BV") -> ListingCardRow:
+    """A minimal listing card, in or out of the target city per *postal*."""
+    return ListingCardRow(
+        name=name,
+        detail_url="https://www.goudengids.be/x",
+        phones=["059 70 00 00"],
+        website=None,
+        email=None,
+        address_street="Teststraat 1",
+        address_postal_code=postal,
+        address_city="Oostende" if postal.startswith("84") else "Brussel",
+        description=None,
+        logo_url=None,
+        raw_card_html="<div></div>",
+    )
 
 
 def _make_pool() -> MagicMock:
@@ -67,6 +86,98 @@ def _normal_page(html: str = "<html></html>") -> MagicMock:
     page.is_last_page = False
     page.html = html
     return page
+
+
+class TestStopsOnceResultsLeaveTheCity:
+    """Stop paging when goudengids has switched to nationwide filler.
+
+    When a sector is thin locally the site pads results with companies from anywhere,
+    which the postcode filter then discards. Those runs cost the most and yield the
+    least: `machinebouwers` fetched 25 pages and 500 cards of which **all 500** were out
+    of city, and `logistiekverleners` kept 35 of 500. Meanwhile the WAF tightened from
+    ~120 pages per block to ~11, so the most expensive requests were also the ones
+    burning a shrinking budget on data that is thrown away.
+
+    Local results rank first, so several consecutive pages with no in-city card means the
+    useful part is already behind us.
+    """
+
+    def _cards_html(self, n_in_city: int, n_out: int) -> str:
+        parts = []
+        for i in range(n_in_city):
+            parts.append(f'<div class="card"><h2>In {i}</h2><span>8400 Oostende</span></div>')
+        for i in range(n_out):
+            parts.append(f'<div class="card"><h2>Out {i}</h2><span>1000 Brussel</span></div>')
+        return "<html>" + "".join(parts) + "</html>"
+
+    async def test_aborts_after_consecutive_out_of_city_pages(self) -> None:
+        pool = _make_pool()
+        # 10 pages available, but none of them hold an in-city card.
+        pages = [_normal_page(self._cards_html(0, 20)) for _ in range(10)]
+        fetcher = _make_fetcher(pages)
+
+        with patch(
+            "scraper.sources.goudengids.ingester.parse_listing_page",
+            side_effect=lambda html, domain: [_card(postal="1000") for _ in range(20)],
+        ):
+            report = await ingest_sector_city(
+                "machinebouw", "oostende", pool, fetcher, max_pages=10, max_empty_pages=3
+            )
+
+        assert report.pages_scanned == 3, "must stop after 3 fruitless pages, not fetch all 10"
+
+    async def test_keeps_paging_while_in_city_cards_appear(self) -> None:
+        pool = _make_pool()
+        pages = [_normal_page() for _ in range(5)] + [_last_page()]
+        fetcher = _make_fetcher(pages)
+
+        with patch(
+            "scraper.sources.goudengids.ingester.parse_listing_page",
+            side_effect=lambda html, domain: [_card(postal="8400")],
+        ):
+            report = await ingest_sector_city(
+                "restaurants", "oostende", pool, fetcher, max_pages=10, max_empty_pages=3
+            )
+
+        assert report.pages_scanned >= 5, "productive pages must not trigger the bail-out"
+
+    async def test_streak_resets_when_a_local_card_reappears(self) -> None:
+        """Two empty pages then a good one must not count toward the limit."""
+        pool = _make_pool()
+        pages = [_normal_page() for _ in range(8)] + [_last_page()]
+        fetcher = _make_fetcher(pages)
+        postcodes = ["1000", "1000", "8400", "1000", "1000", "1000", "8400", "8400"]
+        calls = iter(postcodes)
+
+        with patch(
+            "scraper.sources.goudengids.ingester.parse_listing_page",
+            side_effect=lambda html, domain: [_card(postal=next(calls, "8400"))],
+        ):
+            report = await ingest_sector_city(
+                "loodgieters", "oostende", pool, fetcher, max_pages=9, max_empty_pages=3
+            )
+
+        assert report.pages_scanned > 3, "a reset streak must allow paging to continue"
+
+    async def test_early_stop_still_counts_as_complete(self) -> None:
+        """Bailing out is a decision, not a failure — re-running would find the same."""
+        pool = _make_pool()
+        pages = [_normal_page(self._cards_html(0, 20)) for _ in range(10)]
+        fetcher = _make_fetcher(pages)
+        finish = AsyncMock()
+
+        with (
+            patch(
+                "scraper.sources.goudengids.ingester.parse_listing_page",
+                side_effect=lambda html, domain: [_card(postal="1000")],
+            ),
+            patch("scraper.db.repositories.runs.RunsRepo.finish_run", new=finish),
+        ):
+            await ingest_sector_city(
+                "machinebouw", "oostende", pool, fetcher, max_pages=10, max_empty_pages=2
+            )
+
+        assert finish.await_args.kwargs["notes"] == COMPLETE_MARKER
 
 
 class TestLoadValidSectors:

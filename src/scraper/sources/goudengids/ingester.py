@@ -56,6 +56,9 @@ class GoudengidsReport:
     cards_with_website: int = 0
     observations_inserted: int = 0
     placeholders_created: int = 0
+    #: True when paging stopped because results had left the requested city. A decision,
+    #: not a failure — the sector still counts as covered.
+    stopped_early: bool = False
     duration_s: float = 0.0
 
 
@@ -95,9 +98,11 @@ async def ingest_sector_city(
     pool: asyncpg.Pool,
     fetcher: BrowserListingFetcher,
     *,
-    max_pages: int = 25,
+    max_pages: int = 12,
     lang: Literal["nl", "fr"] = "nl",
     skip_recent_hours: int = 24,
+    #: Consecutive pages with no in-city card before giving up on the sector.
+    max_empty_pages: int = 3,
     refresh_matview: bool = True,
 ) -> GoudengidsReport:
     """Scrape all listing pages for sector x city and write observations.
@@ -153,6 +158,7 @@ async def ingest_sector_city(
 
     buffer: list[Observation] = []
     seen_placeholders: set[str] = set()
+    empty_page_streak = 0
     # Did this run read the listing to the end, or was it cut short? Only a cut-short run
     # deserves a retry — a run that finished has seen everything the sector offers, even
     # if every card was out of city or already known. See pipeline/sector_queue.py.
@@ -179,11 +185,13 @@ async def ingest_sector_city(
 
                 cards = parse_listing_page(listing.html, domain=fetcher._domain)
                 report.cards_found += len(cards)
+                in_city_this_page = 0
 
                 for card in cards:
                     if not card_in_city(card.address_postal_code, allowed_postcodes):
                         report.cards_out_of_city += 1
                         continue
+                    in_city_this_page += 1
 
                     placeholder = make_placeholder_kbo(card.name, card.address_postal_code)
 
@@ -206,6 +214,28 @@ async def ingest_sector_city(
                         ids = await obs_repo.insert_many(buffer)
                         report.observations_inserted += len(ids)
                         buffer.clear()
+
+                # goudengids pads a thin local search with nationwide results, which the
+                # postcode filter above then discards. Those pages are the most expensive
+                # and least productive requests the scraper makes: machinebouwers fetched
+                # 25 pages and 500 cards of which all 500 were out of city. Local results
+                # rank first, so a run of pages with nothing local means the useful part
+                # is already behind us — and with the WAF tightening from ~120 pages per
+                # block to ~11, spending budget on discarded pages is what starves the
+                # sectors that would have produced.
+                if in_city_this_page == 0:
+                    empty_page_streak += 1
+                    if empty_page_streak >= max_empty_pages:
+                        report.stopped_early = True
+                        log.info(
+                            "goudengids_left_city_stopping",
+                            page=page_num,
+                            empty_pages=empty_page_streak,
+                            cards_out_of_city=report.cards_out_of_city,
+                        )
+                        break
+                else:
+                    empty_page_streak = 0
 
             if buffer:
                 ids = await obs_repo.insert_many(buffer)
