@@ -30,6 +30,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.47 s, total 1.9 min, no timeout and no malformed JSONB. The production exception remains
   unidentified precisely because it was suppressed; this change is what will name it.
 
+### Added — consolidation matches on street address, bridging trade name vs legal name
+
+- goudengids lists what is on the shopfront; KBO lists what is on the register. No fuzzy
+  name score connects `Art Barbershop` to `bro`, `Hotel Melinda` to `melinda`, or
+  `Dokter Storme` to `dokterthierrystorme` — and that mismatch, not absence from the
+  registry, is why most placeholders stayed unmatched.
+- Diagnosis on 589 unmatched Oostende placeholders: **69.8% scored 60–79** against a real
+  company (just under the threshold), only 29.2% scored below 60, and just 1% were
+  rejected by the phone veto. Lowering the threshold to 60 was not an option —
+  `Bakkerij Desmedt → DRUKKERIJ DESMET` happened *at* 80.
+- Phone corroboration was measured first and rejected: it would have rescued **4**, because
+  86% of these placeholders have a phone matching no real company (KBO holds contact data
+  for only ~36% of companies).
+- The new pass matches on normalised `street|postcode` where **exactly one** real company
+  occupies that address and the name still scores ≥60. **139 of 589 (24%)** qualify in
+  Oostende. Shared addresses are skipped entirely: an office building holds dozens of
+  companies and picking the best name among them would attach a neighbour's identity.
+- It runs ahead of the name-only pass, which is the least reliable (17.8% phone
+  disagreement). The phone veto applies on top, and the name floor guards against premises
+  that changed hands.
+
 ### Performance — stop paging once results leave the requested city
 
 - goudengids pads a thin local search with nationwide results, which the postcode filter

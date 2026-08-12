@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -47,7 +48,7 @@ class ConsolidationMatch:
     placeholder_kbo: str
     real_kbo: str
     score: float
-    matched_on: Literal["name+postal", "name+city", "name_only"]
+    matched_on: Literal["name+postal", "name+city", "address+name", "name_only"]
 
 
 @dataclass
@@ -60,6 +61,38 @@ class _KboInfo:
     #: Canonical e164 number, when the company has one. Used to veto name matches;
     #: empty means "no evidence", never "no match".
     phone: str = ""
+    #: Street line including house number, e.g. "Van Iseghemlaan 58".
+    street: str = ""
+
+
+#: Minimum name similarity for an address match. The address is strong evidence but not
+#: proof — premises change hands — so the name still has to be plausible.
+_ADDRESS_NAME_FLOOR = 60.0
+
+
+def _normalize_address(street: str, postal_code: str) -> str:
+    """Return a comparable "street|postcode" key, or "" when there is no street.
+
+    Punctuation and repeated whitespace vary between goudengids and KBO for the same
+    address ("van iseghemlaan  58" vs "Van Iseghemlaan 58"), so both are flattened.
+    """
+    if not street:
+        return ""
+    flattened = re.sub(r"[^a-z0-9 ]", " ", street.lower())
+    flattened = re.sub(r"\s+", " ", flattened).strip()
+    if not flattened:
+        return ""
+    return f"{flattened}|{postal_code.strip()}"
+
+
+def _build_address_index(reals: list[_KboInfo]) -> dict[str, list[_KboInfo]]:
+    """Group real companies by normalised address."""
+    index: dict[str, list[_KboInfo]] = {}
+    for r in reals:
+        key = _normalize_address(r.street, r.postal_code)
+        if key:
+            index.setdefault(key, []).append(r)
+    return index
 
 
 def _phones_conflict(a: _KboInfo, b: _KboInfo) -> bool:
@@ -85,7 +118,7 @@ _SQL_PLACEHOLDER_NAMES = (
 )
 _SQL_PLACEHOLDER_ADDRS = (
     "SELECT kbo_number, value->>'postal_code' AS postal_code, "
-    "value->>'city' AS city FROM companies_current "
+    "value->>'city' AS city, value->>'street' AS street FROM companies_current "
     "WHERE field = 'address' AND kbo_number LIKE '9%'"
 )
 _SQL_REAL_NAMES = (
@@ -94,7 +127,7 @@ _SQL_REAL_NAMES = (
 )
 _SQL_REAL_ADDRS = (
     "SELECT kbo_number, value->>'postal_code' AS postal_code, "
-    "value->>'city' AS city FROM companies_current "
+    "value->>'city' AS city, value->>'street' AS street FROM companies_current "
     "WHERE field = 'address' AND kbo_number NOT LIKE '9%'"
 )
 _SQL_PLACEHOLDER_PHONES = (
@@ -164,15 +197,21 @@ async def _gather_kbo_infos(pool: asyncpg.Pool, is_placeholder: bool) -> list[_K
     phone_rows = await pool.fetch(_SQL_PLACEHOLDER_PHONES if is_placeholder else _SQL_REAL_PHONES)
 
     names: dict[str, str] = {r["kbo_number"]: r["name"] or "" for r in name_rows}
-    addrs: dict[str, tuple[str, str]] = {}
+    addrs: dict[str, tuple[str, str, str]] = {}
     for r in addr_rows:
-        addrs[r["kbo_number"]] = (r["postal_code"] or "", r["city"] or "")
+        # street is tolerated as absent: both asyncpg Record and dict support get(), and
+        # a row without it simply cannot take part in the address pass.
+        addrs[r["kbo_number"]] = (
+            r["postal_code"] or "",
+            r["city"] or "",
+            r.get("street") or "",
+        )
     phones: dict[str, str] = {r["kbo_number"]: (r["phone"] or "") for r in phone_rows}
 
     result: list[_KboInfo] = []
     for kbo in names:
         name = names[kbo]
-        postal, city = addrs.get(kbo, ("", ""))
+        postal, city, street = addrs.get(kbo, ("", "", ""))
         result.append(
             _KboInfo(
                 kbo=kbo,
@@ -181,6 +220,7 @@ async def _gather_kbo_infos(pool: asyncpg.Pool, is_placeholder: bool) -> list[_K
                 postal_code=postal.strip(),
                 city=city.lower().strip(),
                 phone=phones.get(kbo, "").strip(),
+                street=street.strip(),
             )
         )
     return result
@@ -194,6 +234,7 @@ def _best_match(
     postal_index: dict[str, list[_KboInfo]] | None = None,
     city_index: dict[str, list[_KboInfo]] | None = None,
     real_name_norms: list[str] | None = None,
+    address_index: dict[str, list[_KboInfo]] | None = None,
 ) -> ConsolidationMatch | None:
     """Three-pass matching: name+postal, name+city, name_only.
 
@@ -256,7 +297,31 @@ def _best_match(
             matched_on=best_matched_on,
         )
 
-    # Pass 3: name only, stricter threshold (90)
+    # Pass 3: same street address, uniquely occupied.
+    #
+    # goudengids carries the trading name, KBO the registered one, and no fuzzy score
+    # connects "Art Barbershop" to "bro" or "Hotel Melinda" to "melinda". A shared address
+    # does. It runs ahead of the name-only pass because it is better evidence: name-only
+    # matches disagree on phone 17.8% of the time.
+    #
+    # Only uniquely-occupied addresses qualify. Office buildings hold dozens of companies,
+    # and picking the best name among them would attach a neighbour's identity.
+    if address_index is not None:
+        key = _normalize_address(placeholder.street, placeholder.postal_code)
+        occupants = address_index.get(key, []) if key else []
+        if len(occupants) == 1:
+            candidate = occupants[0]
+            if not _phones_conflict(placeholder, candidate):
+                score = fuzz.token_set_ratio(placeholder.name_norm, candidate.name_norm)
+                if score >= _ADDRESS_NAME_FLOOR:
+                    return ConsolidationMatch(
+                        placeholder_kbo=placeholder.kbo,
+                        real_kbo=candidate.kbo,
+                        score=float(score),
+                        matched_on="address+name",
+                    )
+
+    # Pass 4: name only, stricter threshold (90)
     if real_name_norms is not None:
         result = _rfprocess.extractOne(
             placeholder.name_norm,
@@ -306,6 +371,7 @@ def _run_matching(
     city_index: dict[str, list[_KboInfo]],
     real_name_norms: list[str],
     threshold: float,
+    address_index: dict[str, list[_KboInfo]] | None = None,
 ) -> list[ConsolidationMatch]:
     """CPU-bound matching loop, suitable for asyncio.to_thread."""
     matches: list[ConsolidationMatch] = []
@@ -319,6 +385,7 @@ def _run_matching(
             postal_index=postal_index,
             city_index=city_index,
             real_name_norms=real_name_norms,
+            address_index=address_index,
         )
         if m:
             matches.append(m)
@@ -398,6 +465,7 @@ async def consolidate(
         if r.city:
             city_index.setdefault(r.city, []).append(r)
     real_name_norms = [r.name_norm for r in reals]
+    address_index = _build_address_index(reals)
 
     # Run CPU-bound matching in a thread so the event loop stays responsive.
     matches = await asyncio.to_thread(
@@ -408,6 +476,7 @@ async def consolidate(
         city_index,
         real_name_norms,
         name_match_threshold,
+        address_index,
     )
 
     # Re-emit placeholder observations under real KBO.

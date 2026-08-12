@@ -220,6 +220,104 @@ class TestPhoneVeto:
         assert _run_matching([p], [r], {}, {}, [r.name_norm], 80.0) == []
 
 
+class TestAddressPass:
+    """A shared street address bridges trading name vs registered legal name.
+
+    goudengids lists what is on the shopfront; KBO lists what is on the register. No
+    fuzzy name score connects "Art Barbershop" to "bro", or "Hotel Melinda" to "melinda".
+    Measured on Oostende: of 589 unmatched placeholders, 139 sit at an address occupied by
+    exactly one real company, and those pairs are plainly the same business —
+    "Dokter Storme"/"dokterthierrystorme", "Bistro Mathilda"/"mathilda".
+
+    Only *uniquely* occupied addresses qualify. An office building or shopping centre
+    holds many companies, and picking the best name score among them would attach a
+    neighbour's identity to the lead.
+    """
+
+    def _pair(
+        self,
+        *,
+        ph_name: str = "Bistro Mathilda",
+        re_name: str = "mathilda",
+        ph_street: str = "Van Iseghemlaan 58",
+        re_street: str = "Van Iseghemlaan 58",
+        ph_phone: str = "",
+        re_phone: str = "",
+    ) -> tuple[_KboInfo, _KboInfo]:
+        placeholder = _KboInfo(
+            kbo="9000000001",
+            name=ph_name,
+            name_norm=_normalize_for_match(ph_name),
+            postal_code="8400",
+            city="oostende",
+            phone=ph_phone,
+            street=ph_street,
+        )
+        real = _KboInfo(
+            kbo="0434762710",
+            name=re_name,
+            name_norm=_normalize_for_match(re_name),
+            postal_code="8400",
+            city="oostende",
+            phone=re_phone,
+            street=re_street,
+        )
+        return placeholder, real
+
+    def _match(self, placeholder: _KboInfo, reals: list[_KboInfo]):
+        from scraper.pipeline.consolidate import _build_address_index
+
+        return _run_matching(
+            [placeholder],
+            reals,
+            {},  # no postal index: force the address pass to do the work
+            {},
+            [r.name_norm for r in reals],
+            80.0,
+            address_index=_build_address_index(reals),
+        )
+
+    def test_unique_address_with_plausible_name_matches(self) -> None:
+        p, r = self._pair()
+        matches = self._match(p, [r])
+        assert len(matches) == 1
+        assert matches[0].matched_on == "address+name"
+
+    def test_street_formatting_differences_are_tolerated(self) -> None:
+        p, r = self._pair(ph_street="van iseghemlaan  58", re_street="Van Iseghemlaan 58")
+        assert len(self._match(p, [r])) == 1
+
+    def test_different_street_does_not_match(self) -> None:
+        p, r = self._pair(ph_street="Kuipweg 13", re_street="Troonstraat 291")
+        assert self._match(p, [r]) == []
+
+    def test_shared_address_is_skipped(self) -> None:
+        """Two companies at one address: attaching either would be a guess."""
+        p, r = self._pair()
+        neighbour = _KboInfo(
+            kbo="0405270651",
+            name="Something Else BV",
+            name_norm=_normalize_for_match("Something Else BV"),
+            postal_code="8400",
+            city="oostende",
+            street="Van Iseghemlaan 58",
+        )
+        assert self._match(p, [r, neighbour]) == []
+
+    def test_wholly_unrelated_name_is_rejected(self) -> None:
+        """The address is strong evidence, not proof — a new tenant is a different firm."""
+        p, r = self._pair(ph_name="Bistro Mathilda", re_name="Zeebrugge Logistics NV")
+        assert self._match(p, [r]) == []
+
+    def test_phone_veto_still_applies(self) -> None:
+        p, r = self._pair(ph_phone="+3259111111", re_phone="+3259222222")
+        assert self._match(p, [r]) == []
+
+    def test_missing_street_cannot_match(self) -> None:
+        p, r = self._pair(ph_street="", re_street="")
+        assert self._match(p, [r]) == []
+
+
 class TestConsolidate:
     async def test_returns_empty_when_no_placeholders(self) -> None:
         pool = _make_consolidate_pool(
