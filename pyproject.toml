@@ -50,6 +50,7 @@ be-leads-cleanup-stage = "scraper.sources.kbo_dump.cleanup_cli:cli_main"
 be-leads-pipeline-batch = "scraper.pipeline.batch_cli:cli_main"
 be-leads-next-sectors = "scraper.pipeline.sector_queue_cli:cli_main"
 be-leads-next-city = "scraper.pipeline.next_city_cli:cli_main"
+be-leads-suppress = "scraper.db.suppress_cli:cli_main"
 be-leads-export = "scraper.ui.export:cli_main"
 
 [build-system]

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — suppression list: objections and erasure requests are honoured at export time
+
+- New `suppression_list` table (migration `009`) plus `be-leads-suppress` CLI. Every export
+  consults the list and refuses to emit a matching row.
+- Suppression is a **separate mutable layer**, not a delete. `observations` is append-only
+  by design and its provenance trail is what makes the dataset defensible, so honouring
+  GDPR Art. 21 (objection to direct marketing, absolute) and Art. 17 (erasure) by deleting
+  rows would falsify the record of what was seen and when. The observation stays; the
+  disclosure stops.
+- An entry may key on **KBO number, email, or phone** — at least one, enforced by a CHECK
+  constraint. Objections arrive as "stop calling this number", not as a company number.
+  KBO matches are filtered in the selection query; phone and email are checked per row,
+  because the same number sits on both a placeholder and the real KBO it merged into, and
+  a KBO-only filter would leave the twin exporting the very number that was objected to.
+- Matching tolerates the shapes the data actually arrives in: `CHAR(10)` space padding on
+  KBO numbers, and case differences on email (a request typed `INFO@Example.be` suppresses
+  a scraped `info@example.be`).
+- A missing table is tolerated so exports still run on pre-009 schemas, but **only**
+  `UndefinedTableError` is caught. Any other fault — permission denied, a transient error —
+  raises rather than reading as an empty list, which would silently ship every objector.
+  That is the same swallowed-failure pattern removed from phases D/E/F below.
+- Existing CSV files already written are unaffected; the CLI says so on every insert.
+
 ### Fixed — Phase D/E/F failures were discarded, hiding three nights of dead prospect scores
 
 - `batch.py` wrapped the matview refreshes, consolidation and prospect scoring in

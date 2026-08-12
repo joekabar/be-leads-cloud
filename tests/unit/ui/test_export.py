@@ -7,6 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+import asyncpg
 import pytest
 
 from scraper.pipeline.city_map import city_for_postal_code
@@ -170,6 +171,203 @@ class TestMatchedPlaceholdersAreNotExportedTwice:
         with out.open(encoding="utf-8") as fh:
             rows = list(csv.DictReader(fh))
         assert {r["kbo_number"] for r in rows} == {"0439401387"}
+
+
+class TestSuppression:
+    """A suppressed person or company must never reach a CSV.
+
+    GDPR Art. 21 makes objection to direct marketing absolute, and Art. 17 grants erasure.
+    Neither can be honoured by deleting observations — that table is append-only, and its
+    provenance trail is what makes the dataset defensible. Suppression is therefore a
+    separate mutable layer: the observation stays as the record of what was seen, and the
+    export refuses to emit it.
+
+    Objections arrive in whatever terms the person used — a phone number, an email, or a
+    company number — so any of the three must be able to suppress a row.
+    """
+
+    def _pool(
+        self,
+        rows: list[dict[str, Any]],
+        suppression: list[dict[str, Any]] | Exception,
+    ) -> MagicMock:
+        pool = MagicMock()
+        kbos = [r["kbo"] for r in rows]
+
+        async def _fetch(sql: str, *args: Any, **kwargs: Any) -> list[Any]:
+            if "suppression_list" in sql:
+                if isinstance(suppression, Exception):
+                    raise suppression
+                return list(suppression)
+            if "consolidation_state" in sql:
+                return []
+            if "DISTINCT kbo_number FROM companies_current" in sql:
+                return [{"kbo_number": k} for k in kbos]
+            if "FROM observations " in sql and "revenue_" in sql:
+                return []
+            if "FROM observations " in sql:
+                out = []
+                for r in rows:
+                    out.append(
+                        {"kbo_number": r["kbo"], "field": "name", "value": {"text": r["kbo"]}}
+                    )
+                    if r.get("phone"):
+                        out.append(
+                            {
+                                "kbo_number": r["kbo"],
+                                "field": "phone",
+                                "value": {"e164": r["phone"]},
+                            }
+                        )
+                    if r.get("email"):
+                        out.append(
+                            {
+                                "kbo_number": r["kbo"],
+                                "field": "email",
+                                "value": {"address": r["email"]},
+                            }
+                        )
+                return out
+            return []
+
+        pool.fetch = AsyncMock(side_effect=_fetch)
+        return pool
+
+    async def _exported(
+        self,
+        tmp_path: Path,
+        rows: list[dict[str, Any]],
+        suppression: list[dict[str, Any]] | Exception,
+    ) -> list[dict[str, str]]:
+        """Run the export and return its CSV rows.
+
+        ``_row_to_obs`` is patched to build an Observation that actually carries the
+        field it was handed, rather than a fixed stand-in. A stand-in would leave every
+        exported row's phone and email blank, so the phone and email suppression paths
+        could not fail this test even if they were deleted outright.
+        """
+        from scraper.db.models import Observation
+
+        def _to_obs(row: dict[str, Any]) -> Any:
+            return Observation(
+                kbo_number=row["kbo_number"],
+                field=row["field"],
+                value=row["value"],
+                raw_value=None,
+                source="goudengids",
+                source_url=None,
+                observed_at=datetime.now(tz=UTC),
+                confidence=0.9,
+                run_id=uuid4(),
+            )
+
+        out = tmp_path / "leads.csv"
+        pool = self._pool(rows, suppression)
+        with patch("scraper.ui.export._row_to_obs", side_effect=_to_obs):
+            await export_csv(pool, out)
+        with out.open(encoding="utf-8") as fh:
+            return list(csv.DictReader(fh))
+
+    async def _exported_kbos(
+        self,
+        tmp_path: Path,
+        rows: list[dict[str, Any]],
+        suppression: list[dict[str, Any]] | Exception,
+    ) -> set[str]:
+        return {r["kbo_number"] for r in await self._exported(tmp_path, rows, suppression)}
+
+    async def test_kbo_suppression_removes_the_row(self, tmp_path: Path) -> None:
+        rows = [{"kbo": "9000000001"}, {"kbo": "9000000002"}]
+        got = await self._exported_kbos(tmp_path, rows, [{"kbo_number": "9000000001"}])
+        assert "9000000001" not in got
+
+    async def test_unsuppressed_rows_survive(self, tmp_path: Path) -> None:
+        rows = [{"kbo": "9000000001"}, {"kbo": "9000000002"}]
+        got = await self._exported_kbos(tmp_path, rows, [{"kbo_number": "9000000001"}])
+        assert "9000000002" in got
+
+    async def test_empty_suppression_list_changes_nothing(self, tmp_path: Path) -> None:
+        rows = [{"kbo": "9000000001"}, {"kbo": "9000000002"}]
+        got = await self._exported_kbos(tmp_path, rows, [])
+        assert got == {"9000000001", "9000000002"}
+
+    async def test_kbo_whitespace_is_tolerated(self, tmp_path: Path) -> None:
+        """CHAR(10) pads; a padded entry must still match."""
+        rows = [{"kbo": "9000000001"}]
+        got = await self._exported_kbos(tmp_path, rows, [{"kbo_number": "9000000001 "}])
+        assert got == set()
+
+    async def test_the_harness_actually_exports_phone_and_email(self, tmp_path: Path) -> None:
+        """Guard the tests below: they only mean something if these columns are populated.
+
+        If ``phone``/``email`` came out blank, every suppression assertion further down
+        would pass against a row that never carried the value in the first place.
+        """
+        rows = [{"kbo": "9000000001", "phone": "+3259701934", "email": "info@example.be"}]
+        got = await self._exported(tmp_path, rows, [])
+        assert got[0]["phone"] == "+3259701934"
+        assert got[0]["email"] == "info@example.be"
+
+    async def test_phone_suppression_removes_the_row(self, tmp_path: Path) -> None:
+        """ "Stop calling this number" is the commonest objection and names no KBO."""
+        rows = [
+            {"kbo": "9000000001", "phone": "+3259701934"},
+            {"kbo": "9000000002", "phone": "+3259999999"},
+        ]
+        got = await self._exported_kbos(tmp_path, rows, [{"phone": "+3259701934"}])
+        assert got == {"9000000002"}
+
+    async def test_phone_suppression_spans_every_kbo_carrying_it(self, tmp_path: Path) -> None:
+        """A placeholder and the real KBO it merged into both carry the same number.
+
+        Suppressing by KBO alone would leave the twin exporting the very number the
+        person objected to, so the check runs per row rather than in the selection query.
+        """
+        rows = [
+            {"kbo": "9000000001", "phone": "+3259701934"},
+            {"kbo": "0439401387", "phone": "+3259701934"},
+        ]
+        got = await self._exported_kbos(tmp_path, rows, [{"phone": "+3259701934"}])
+        assert got == set()
+
+    async def test_email_suppression_removes_the_row(self, tmp_path: Path) -> None:
+        rows = [
+            {"kbo": "9000000001", "email": "info@example.be"},
+            {"kbo": "9000000002", "email": "other@example.be"},
+        ]
+        got = await self._exported_kbos(tmp_path, rows, [{"email": "info@example.be"}])
+        assert got == {"9000000002"}
+
+    async def test_email_suppression_ignores_case(self, tmp_path: Path) -> None:
+        """The local part is case-sensitive per RFC, but nobody objecting means that.
+
+        A request typed as "INFO@Example.be" must still suppress the scraped
+        "info@example.be", or the objection is honoured only by luck of transcription.
+        """
+        rows = [{"kbo": "9000000001", "email": "info@example.be"}]
+        got = await self._exported_kbos(tmp_path, rows, [{"email": "INFO@Example.be"}])
+        assert got == set()
+
+    async def test_missing_table_is_tolerated(self, tmp_path: Path) -> None:
+        """Pre-009 schemas have no suppression_list; the export must still run."""
+        rows = [{"kbo": "9000000001"}]
+        got = await self._exported_kbos(
+            tmp_path, rows, asyncpg.UndefinedTableError("no such table")
+        )
+        assert got == {"9000000001"}
+
+    async def test_an_unreadable_list_stops_the_export(self, tmp_path: Path) -> None:
+        """Any fault other than "table absent" must raise, never export everyone.
+
+        Swallowing it would turn a transient database error into a silent compliance
+        breach: the list reads as empty and every objector ships. That is the same
+        failure mode this branch removed from the batch pipeline's phases D/E/F.
+        """
+        rows = [{"kbo": "9000000001"}]
+        with pytest.raises(asyncpg.PostgresError):
+            await self._exported_kbos(
+                tmp_path, rows, asyncpg.InsufficientPrivilegeError("permission denied")
+            )
 
 
 class TestCityFallback:
