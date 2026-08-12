@@ -44,9 +44,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   86% of these placeholders have a phone matching no real company (KBO holds contact data
   for only ~36% of companies).
 - The new pass matches on normalised `street|postcode` where **exactly one** real company
-  occupies that address and the name still scores ≥60. **139 of 589 (24%)** qualify in
-  Oostende. Shared addresses are skipped entirely: an office building holds dozens of
-  companies and picking the best name among them would attach a neighbour's identity.
+  occupies that address and the name still scores ≥60. Shared addresses are skipped
+  entirely: an office building holds dozens of companies and picking the best name among
+  them would attach a neighbour's identity.
+- **Measured result: 47 matches** across the whole database (average name score 69.7),
+  adding 22 NACE labels, 18 revenue figures and 33 status values to the Oostende export.
+  The pairs are unambiguous — `TOTALE RENOVATIE BRUGGE`/`tr.totale renovatie`,
+  `GARAGE VANDEGINSTE`/`VANDEGINSTE`, `Dokter Storme`/`DOKTER THIERRY STORME`.
+- An earlier draft of this entry claimed 139. That figure counted every uniquely-addressed
+  candidate **before** applying the ≥60 name floor that the pass actually uses; the sample
+  behind it ranged down to 33.8. The design was right, the projection was not.
 - It runs ahead of the name-only pass, which is the least reliable (17.8% phone
   disagreement). The phone veto applies on top, and the name floor guards against premises
   that changed hands.
