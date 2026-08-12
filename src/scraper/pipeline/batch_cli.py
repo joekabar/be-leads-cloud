@@ -50,10 +50,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--max-pages",
         type=int,
-        default=12,
+        default=25,
         metavar="N",
-        help="Listing pages per sector (default 12; beyond that goudengids serves mostly "
-        "out-of-city padding).",
+        help="Ceiling on listing pages per sector (default 25). The in-city bail-out, not "
+        "this cap, is what stops thin sectors early.",
     )
     p.add_argument("--database-url", default=None)
     p.add_argument("--brave-key", default=None, help="env: BRAVE_SEARCH_API_KEY")

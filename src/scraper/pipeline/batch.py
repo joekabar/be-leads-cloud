@@ -74,11 +74,12 @@ class BatchConfig:
     extra_nace: list[str] = field(default_factory=list)
     snapshot_date: date | None = None
     lang: Literal["nl", "fr"] = "nl"
-    # Lowered from 25: pages beyond ~12 were almost entirely goudengids' nationwide
-    # padding, which the postcode filter discards. Combined with the in-city bail-out in
-    # the ingester, this stops a shrinking WAF budget being spent on data that is thrown
-    # away — the block rate had gone from ~120 pages per block to ~11.
-    max_pages: int = 12
+    # A ceiling, not the mechanism. The in-city bail-out in the ingester is what stops
+    # waste: thin sectors now quit after 3-6 pages on their own. Lowering this to 12
+    # therefore saved nothing on thin sectors and instead truncated the dense ones —
+    # `restaurants` in Oostende ran to exactly 12 pages with only 8 of 240 cards out of
+    # city, so real leads were being cut off at the limit.
+    max_pages: int = 25
     nbb_subscription_key: str | None = None
     brave_subscription_key: str | None = None
     database_url: str | None = None

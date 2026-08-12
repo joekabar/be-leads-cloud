@@ -99,7 +99,7 @@ class TestBuildParser:
 
     def test_max_pages_default(self) -> None:
         args = _build_parser().parse_args(["--city", "gent", "--all-sectors"])
-        assert args.max_pages == 12
+        assert args.max_pages == 25
 
     def test_max_pages_custom(self) -> None:
         args = _build_parser().parse_args(["--city", "gent", "--all-sectors", "--max-pages", "10"])

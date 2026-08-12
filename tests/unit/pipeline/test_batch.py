@@ -56,9 +56,8 @@ class TestBatchConfig:
     def test_defaults(self) -> None:
         cfg = BatchConfig(city="antwerpen", sectors=["elektriciens"])
         assert cfg.lang == "nl"
-        # 12, not 25: later pages were overwhelmingly goudengids' nationwide padding,
-        # discarded by the postcode filter while still costing WAF budget.
-        assert cfg.max_pages == 12
+        # A ceiling only; the in-city bail-out is what stops thin sectors early.
+        assert cfg.max_pages == 25
         assert cfg.snapshot_date is None
         assert cfg.do_kbo_dump is True
         assert cfg.do_goudengids is True

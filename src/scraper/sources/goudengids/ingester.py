@@ -98,7 +98,7 @@ async def ingest_sector_city(
     pool: asyncpg.Pool,
     fetcher: BrowserListingFetcher,
     *,
-    max_pages: int = 12,
+    max_pages: int = 25,
     lang: Literal["nl", "fr"] = "nl",
     skip_recent_hours: int = 24,
     #: Consecutive pages with no in-city card before giving up on the sector.
