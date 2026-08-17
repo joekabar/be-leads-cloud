@@ -29,7 +29,14 @@ class TestResolveDsn:
         assert _resolve_dsn(None) == "postgresql://env/leads"
 
     def test_no_dsn_anywhere_is_an_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Better a named ConfigError than a connection attempt to an empty string."""
+        """Better a named ConfigError than a connection attempt to an empty string.
+
+        ``load_settings()`` calls ``load_dotenv()``, which puts DATABASE_URL straight back
+        after ``delenv`` on any checkout that has a .env — i.e. the documented dev setup.
+        Neutralising it keeps the test about the missing-DSN branch rather than about
+        whether the machine running it happens to be configured.
+        """
         monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: True)
         with pytest.raises(ConfigError):
             _resolve_dsn(None)
