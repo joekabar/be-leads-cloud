@@ -62,6 +62,35 @@ def _fmt(v: Any) -> str:
     return str(v)
 
 
+async def _load_suppression(pool: asyncpg.Pool) -> tuple[set[str], set[str], set[str]]:
+    """Return (kbo_numbers, emails, phones) that must not be exported.
+
+    Emails are lower-cased for comparison; ``kbo_number`` is CHAR(10) and therefore
+    space-padded on the way out of Postgres, so it is stripped.
+
+    A missing ``suppression_list`` table is treated as an empty list rather than an error:
+    the table arrives in migration 009, and an export running against an older schema
+    should still work.
+
+    Only ``UndefinedTableError`` is tolerated. Catching every exception here would mean a
+    transient fault, a permission error, or a typo silently empties the list and the export
+    ships everyone who objected — the failure this function exists to prevent, and the same
+    swallowed-error pattern this branch removed from the batch pipeline. An unreadable
+    suppression list must stop the export, not quietly widen it.
+    """
+    try:
+        rows = await pool.fetch("SELECT kbo_number, email, phone FROM suppression_list")
+    except asyncpg.UndefinedTableError:
+        return set(), set(), set()
+
+    # get() rather than []: both asyncpg Record and dict support it, and a row supplying
+    # only the identifier it cares about is legitimate.
+    kbos = {str(r.get("kbo_number")).strip() for r in rows if r.get("kbo_number")}
+    emails = {str(r.get("email")).strip().lower() for r in rows if r.get("email")}
+    phones = {str(r.get("phone")).strip() for r in rows if r.get("phone")}
+    return kbos, emails, phones
+
+
 def _titlecase_city(slug: str | None) -> str:
     """Render a city slug for display: "sint-niklaas" -> "Sint-Niklaas"."""
     if not slug:
@@ -186,6 +215,16 @@ async def export_csv(
 
     kbos = [str(r["kbo_number"]).strip() for r in kbo_rows]
 
+    # Remove anyone who has objected or asked to be erased. This cannot be done by
+    # deleting observations — that table is append-only, and its provenance trail is what
+    # makes the dataset defensible — so suppression is a separate mutable layer applied at
+    # the point of disclosure. GDPR Art. 21 (objection to direct marketing) is absolute;
+    # Art. 17 (erasure) has to be honourable without falsifying the record of what was
+    # seen and when.
+    suppressed_kbos, suppressed_emails, suppressed_phones = await _load_suppression(pool)
+    if suppressed_kbos:
+        kbos = [k for k in kbos if k not in suppressed_kbos]
+
     # Drop placeholders that consolidation merged into a real KBO **that this export also
     # selects**. Their observations were re-emitted under that KBO, so keeping both ships
     # the same company twice — 559 of 1,674 rows in the 2026-08-01 Oostende export.
@@ -287,6 +326,15 @@ async def export_csv(
         if not obs_list:
             continue
         base = _aggregate_row(kbo, obs_list, now)
+
+        # An objection usually names a phone or an email, not a company number, and the
+        # same number can sit on several KBOs (a placeholder and its real twin). Checking
+        # here rather than in the selection query catches every row carrying it.
+        if suppressed_phones and str(base.get("phone") or "").strip() in suppressed_phones:
+            continue
+        if suppressed_emails and str(base.get("email") or "").strip().lower() in suppressed_emails:
+            continue
+
         ps = prospect_map.get(kbo, {})
         fin = fin_by_kbo.get(kbo, {})
         addr = addr_map.get(kbo, {})
