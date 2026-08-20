@@ -52,7 +52,62 @@ function Write-State([string] $msg) {
     "[$(Get-Date -Format s)] $msg" | Add-Content -Path $state -Encoding utf8
 }
 
+# Run a `uv` command, capture its stdout, and survive whatever it writes to stderr.
+#
+# Two separate hazards, both of which cost real nights:
+#
+# 1. Windows PowerShell 5.1 wraps every stderr line from a native exe in a
+#    NativeCommandError record. Under $ErrorActionPreference = 'Stop' that record is
+#    TERMINATING, so the script dies mid-statement -- before the `if ($LASTEXITCODE...)`
+#    below it can log anything. uv writes ordinary progress to stderr ("Uninstalled 1
+#    package in 0.3ms"), so this fired on perfectly healthy runs. Between 2026-08-12 and
+#    2026-08-17 every scheduled run logged START, nothing else, and exited 1: ten dead
+#    nights, no error, five days of stale data.
+# 2. Capturing with `2>&1` merges those stderr lines into the returned value. Even with
+#    the crash fixed, the caller would then treat "Uninstalled 1 package" as a city name.
+#
+# So: drop to 'Continue' for the duration of the call, send stderr to a log instead of
+# into the value, and hand back the real exit code.
+function Invoke-Uv {
+    param(
+        [Parameter(Mandatory)] [string[]] $Arguments,
+        [Parameter(Mandatory)] [string]   $ErrLog
+    )
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $all  = & uv @Arguments 2>&1
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+
+    # 2>&1 merges the streams, but the objects stay distinguishable: stderr arrives as an
+    # ErrorRecord, stdout as a plain string. Splitting on type keeps "Uninstalled 1 package"
+    # out of the returned value while still preserving it for diagnosis. Note the stderr is
+    # written with Add-Content -Encoding utf8 rather than a bare `2>>` redirection, which in
+    # PowerShell 5.1 emits UTF-16 and would corrupt a log the rest of this script wrote UTF-8.
+    $err = @($all | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
+    if ($err.Count) {
+        $err | ForEach-Object { "[$(Get-Date -Format s)] stderr: $_" } |
+            Add-Content -Path $ErrLog -Encoding utf8
+    }
+
+    return [PSCustomObject]@{
+        ExitCode = $code
+        Output   = @($all | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
+    }
+}
+
 Write-State "START city=$(if ($City) { $City } else { '<rotation>' }) limit=$Limit"
+
+# A night that produced nothing must still say so. Without this trap a terminating error
+# leaves START as the last line in the log and the failure is invisible until someone
+# notices the data has stopped moving -- which is exactly how the five days above passed.
+trap {
+    Write-State "END exit=1 reason=unhandled :: $($_.Exception.Message)"
+    exit 1
+}
 
 # ---------------------------------------------------------------------------
 # Database preflight.
@@ -159,12 +214,12 @@ if ($CheckOnly) {
 # Which city is the rotation on? Finishes one city before starting the next; prints
 # nothing once every configured city is complete.
 if (-not $City) {
-    $cityRaw = & uv run be-leads-next-city 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-State "FAILED next-city exit=$LASTEXITCODE :: $cityRaw"
-        exit $LASTEXITCODE
+    $nextCity = Invoke-Uv -Arguments @('run', 'be-leads-next-city') -ErrLog $log
+    if ($nextCity.ExitCode -ne 0) {
+        Write-State "FAILED next-city exit=$($nextCity.ExitCode) see=$log"
+        exit $nextCity.ExitCode
     }
-    $City = @($cityRaw | Where-Object { $_ -and ("$_".Trim() -ne '') } |
+    $City = @($nextCity.Output | Where-Object { $_ -and ("$_".Trim() -ne '') } |
         ForEach-Object { "$_".Trim() }) | Select-Object -First 1
 
     if (-not $City) {
@@ -179,13 +234,13 @@ if (-not $City) {
 $log = Join-Path $LogDir "nightly_scrape_${City}_${stamp}.log"
 
 # Which sectors still need work?
-$raw = & uv run be-leads-next-sectors --city $City --limit $Limit 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-State "FAILED next-sectors exit=$LASTEXITCODE :: $raw"
-    exit $LASTEXITCODE
+$nextSectors = Invoke-Uv -Arguments @('run', 'be-leads-next-sectors', '--city', $City, '--limit', $Limit) -ErrLog $log
+if ($nextSectors.ExitCode -ne 0) {
+    Write-State "FAILED next-sectors exit=$($nextSectors.ExitCode) see=$log"
+    exit $nextSectors.ExitCode
 }
 
-$sectors = @($raw | Where-Object { $_ -and ("$_".Trim() -ne '') } | ForEach-Object { "$_".Trim() })
+$sectors = @($nextSectors.Output | Where-Object { $_ -and ("$_".Trim() -ne '') } | ForEach-Object { "$_".Trim() })
 
 if ($sectors.Count -eq 0) {
     Write-State "DONE city=$City is fully covered, nothing to scrape tonight"

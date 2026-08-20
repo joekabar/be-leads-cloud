@@ -8,7 +8,7 @@
 
     Defaults reproduce the Oostende micro-business brief: in the city, has a phone,
     and no published revenue above the ceiling. Companies with no revenue on file are
-    KEPT — micro enterprises file abbreviated accounts and publish no turnover, so
+    KEPT -- micro enterprises file abbreviated accounts and publish no turnover, so
     excluding them would discard most of the list.
 
 .EXAMPLE
@@ -49,9 +49,27 @@ if ($MaxRevenue -gt 0)         { $argList += @('--max-revenue', $MaxRevenue) }
 "[$(Get-Date -Format s)] START uv $($argList -join ' ')" | Add-Content -Path $logFile -Encoding utf8
 
 try {
-    $output = & uv @argList 2>&1
-    $code = $LASTEXITCODE
-    $output | ForEach-Object { "[$(Get-Date -Format s)] $_" } | Add-Content -Path $logFile -Encoding utf8
+    # Windows PowerShell 5.1 wraps every stderr line from a native exe in a
+    # NativeCommandError record, which is TERMINATING under $ErrorActionPreference =
+    # 'Stop'. uv writes ordinary progress to stderr, so `2>&1` here turned "Uninstalled 1
+    # package in 0.3ms" into a fatal error: every four-hourly export from 2026-08-12
+    # onwards logged `ERROR Uninstalled 1 package` and wrote no CSV. Drop to 'Continue'
+    # for the call and read the real exit code afterwards. The row count below comes from
+    # the CSV, not from $output, so mixed streams are safe to log verbatim here.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & uv @argList 2>&1
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+    # Both streams are logged, but they are tagged so a real failure is distinguishable from
+    # uv's routine chatter. Add-Content keeps this UTF-8; a bare `2>>` would write UTF-16.
+    $output | ForEach-Object {
+        $tag = if ($_ -is [System.Management.Automation.ErrorRecord]) { 'stderr: ' } else { '' }
+        "[$(Get-Date -Format s)] $tag$_"
+    } | Add-Content -Path $logFile -Encoding utf8
 
     if ($code -ne 0) {
         "[$(Get-Date -Format s)] FAILED exit=$code" | Add-Content -Path $logFile -Encoding utf8

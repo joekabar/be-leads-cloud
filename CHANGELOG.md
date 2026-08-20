@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — uv's progress output on stderr killed every scheduled run for five days
+
+- `nightly_scrape.ps1` and `daily_export.ps1` captured CLI output with `2>&1` under
+  `$ErrorActionPreference = 'Stop'`. Windows PowerShell 5.1 wraps each stderr line from a
+  native exe in a `NativeCommandError`, which is **terminating** under `Stop`, so the script
+  died mid-statement — before the `if ($LASTEXITCODE -ne 0)` beneath it could log anything.
+- The trigger was not a failure. `uv` writes ordinary progress to stderr, and it reinstalled
+  the editable package on every invocation while the `be-leads-suppress` entry point sat
+  uncommitted in `pyproject.toml`. So `Uninstalled 1 package in 0.3ms` was fatal.
+- Cost: **every scheduled run from 2026-08-12 14:30 to 2026-08-17 died silently** — ten
+  nightly scrapes and ~30 four-hourly exports. Each logged `START` and nothing more, exited
+  1, and produced no per-run log. Latest observation stood still at 2026-08-12 01:02 and
+  `prospect_scores` — which ranks every export — went five days stale with nothing reported.
+- The trap was already known: `nightly_scrape.ps1` documents it and guards the batch call.
+  Three call sites were missed — `next-city`, `next-sectors`, and the export. All three now
+  route through a helper that drops to `'Continue'`, splits stdout from stderr **by object
+  type** (`ErrorRecord` vs string) so `Uninstalled 1 package` can never be parsed as a city
+  name, logs stderr as UTF-8 via `Add-Content` (a bare `2>>` writes UTF-16), and returns the
+  real exit code.
+- Added a script-scope `trap` so any *other* unhandled terminating error still writes an
+  `END exit=1 reason=unhandled :: <message>` line. A night that produced nothing must say so.
+- Removed a stray em dash from `daily_export.ps1`, which broke the file's own pure-ASCII rule.
+
 ### Added — suppression list: objections and erasure requests are honoured at export time
 
 - New `suppression_list` table (migration `009`) plus `be-leads-suppress` CLI. Every export
