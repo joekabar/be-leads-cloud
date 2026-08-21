@@ -81,6 +81,19 @@ def get_postal_codes(city_slug: str) -> list[str] | None:
     return _MAP.get(_ALIASES.get(slug, slug))
 
 
+def canonical_slug(city_slug: str) -> str | None:
+    """Return the canonical slug for a spelling of a city, or None if unknown.
+
+    Folds case, aliases ("luik" -> "liege") and stray whitespace, so values that reached
+    the database before slug normalisation existed — ``run_log`` holds both "oostende"
+    and "Oostende" — collapse to one city rather than being counted twice.
+    """
+    _ensure_loaded()
+    slug = city_slug.strip().lower()
+    slug = _ALIASES.get(slug, slug)
+    return slug if slug in _MAP else None
+
+
 def city_for_postal_code(postal_code: str) -> str | None:
     """Return the city slug a postal code belongs to, or None.
 

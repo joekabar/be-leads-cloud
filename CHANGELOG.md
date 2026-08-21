@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the daily export was pinned to one city while the scraper rotated past it
+
+- The scheduled task ran `daily_export.ps1 -City oostende`, and the script itself defaulted
+  to `@('oostende')`. The scraper rotates through `scrape_cities.toml`; the export did not.
+- When the rotation moved to Brugge on 2026-08-21, the export kept asking for Oostende.
+  **2,170 exportable Brugge leads were in the database and in no CSV at all** — 572 of them
+  only reachable because of the postcode fix in this same release. The `exports/` folder
+  held nothing but `leads_oostende_*.csv`, flat at ~298 kB, while Brugge data poured in.
+- `daily_export.ps1` now writes **one file per city** and discovers the cities itself.
+  Passing `-City` still overrides. A new city starts exporting the morning after its first
+  scrape with nothing to edit.
+- New `be-leads-export-cities` CLI and `cities_to_export()`. The signal is a **goudengids
+  run**, not the presence of rows: `companies_current` holds the whole country from the KBO
+  dump, so every configured city has registry rows — Brussels has the most exportable ones
+  of any city (5,952) despite never having been scraped. Keying off `run_log` keeps the
+  export to cities actually worked. Slugs are canonicalised, so the pre-normalisation
+  `Oostende` rows fold into `oostende` rather than producing a second file.
+- Row counts in the log now come from the export CLI's own record count instead of
+  `(Get-Content | Measure-Object -Line).Lines - 1`, which counted **physical** lines: one
+  Oostende address contains an embedded newline, so a 1,976-row file was logged as 1,977.
+- `daily_export.ps1` also gains the script-scope `trap` and the shared `Invoke-Uv` helper
+  that `nightly_scrape.ps1` already had, so an unhandled error writes an `END exit=1` line
+  instead of leaving `START` as the last thing in the log.
+- First run: 6 files, 8,253 rows — aalst 407, antwerpen 2,065, brugge 2,170, gent 1,140,
+  oostende 1,981, sint-niklaas 490.
+
 ### Fixed — the city postcode map was wrong for 13 of 15 cities
 
 - `pipeline/city_map.toml` carried a curated postcode list per city that **overrode**

@@ -15,7 +15,7 @@ import asyncpg
 
 from scraper.db.repositories.observations import _row_to_obs
 from scraper.lib.nace_labels import nace_label
-from scraper.pipeline.city_map import city_for_postal_code, get_postal_codes
+from scraper.pipeline.city_map import canonical_slug, city_for_postal_code, get_postal_codes
 from scraper.ui.data import _aggregate_row, _financial_amount
 
 if TYPE_CHECKING:
@@ -113,6 +113,41 @@ def resolve_city_postcodes(cities: Sequence[str]) -> list[str]:
             if code not in out:
                 out.append(code)
     return out
+
+
+async def cities_to_export(pool: asyncpg.Pool) -> list[str]:
+    """Return the city slugs the scraper has actually worked, sorted.
+
+    The daily export used to take a city slug on the command line, which meant it stood
+    still while the rotation moved past it: when the rotation reached Brugge, the
+    scheduled task kept exporting Oostende and 2,170 Brugge leads reached no file at all.
+    Asking the database which cities exist keeps the two in step, with nothing to edit
+    when the rotation advances.
+
+    The signal is a goudengids run rather than the presence of rows. ``companies_current``
+    holds the whole country from the KBO dump, so every configured city has registry rows
+    — Brussels has the most exportable ones of any city despite never having been
+    scraped. A city therefore appears here the morning after its first scrape, and not
+    before.
+
+    Slugs are canonicalised, so the pre-normalisation "Oostende" rows in ``run_log`` fold
+    into "oostende" instead of producing a second file. A slug that resolves to no city is
+    skipped rather than guessed at: passing it on would widen the export from one city to
+    the whole country.
+    """
+    rows = await pool.fetch(
+        "SELECT DISTINCT city_slug FROM run_log "
+        "WHERE city_slug IS NOT NULL AND source = 'goudengids'"
+    )
+    found: set[str] = set()
+    for row in rows:
+        raw = row["city_slug"]
+        if not raw:
+            continue
+        slug = canonical_slug(str(raw))
+        if slug is not None:
+            found.add(slug)
+    return sorted(found)
 
 
 def build_selection_sql(
@@ -398,6 +433,47 @@ async def export_csv(
             writer.writerows(chunk)
         written.append(chunk_path)
     return written
+
+
+def cli_cities() -> None:  # pragma: no cover
+    """``be-leads-export-cities`` — print the cities that have data to export.
+
+    One slug per line, sorted, so the daily export can write a file per city instead of
+    being pinned to a slug that the scraper's rotation has already moved past. Prints
+    nothing when there is no data, which the caller should treat as "nothing to do"
+    rather than an error.
+    """
+    import sys
+
+    parser = argparse.ArgumentParser(
+        description="Print city slugs the scraper has worked, one per line."
+    )
+    parser.add_argument("--database-url", default=None, help="PostgreSQL DSN")
+    args = parser.parse_args()
+
+    from scraper.lib.config import database_url
+
+    dsn = args.database_url or database_url()
+    if not dsn:
+        print("DATABASE_URL is not set", file=sys.stderr)
+        sys.exit(2)
+
+    async def _run() -> list[str]:
+        async def _init_jsonb(conn: asyncpg.Connection) -> None:
+            await conn.set_type_codec(
+                "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
+            )
+
+        pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2, init=_init_jsonb)
+        if pool is None:
+            raise RuntimeError("asyncpg.create_pool returned None")
+        try:
+            return await cities_to_export(pool)
+        finally:
+            await pool.close()
+
+    for slug in asyncio.run(_run()):
+        print(slug)
 
 
 def cli_main() -> None:  # pragma: no cover

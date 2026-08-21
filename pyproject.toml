@@ -52,6 +52,7 @@ be-leads-next-sectors = "scraper.pipeline.sector_queue_cli:cli_main"
 be-leads-next-city = "scraper.pipeline.next_city_cli:cli_main"
 be-leads-suppress = "scraper.db.suppress_cli:cli_main"
 be-leads-export = "scraper.ui.export:cli_main"
+be-leads-export-cities = "scraper.ui.export:cli_cities"
 
 [build-system]
 requires = ["hatchling"]
