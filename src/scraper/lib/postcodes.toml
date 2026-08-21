@@ -1,17 +1,72 @@
 # Postcode ranges per Belgian city used as goudengids targets.
-# city slug → display name + list of postal codes.
+# city slug -> display name + list of postal codes.
 # Slugs match the goudengids URL path component (lowercase, ASCII).
+#
+# THIS FILE IS AUTHORITATIVE. pipeline/city_map.toml may add cities that are not
+# listed here and declare aliases, but it may no longer override these lists --
+# it used to, and the curated overrides were wrong for 13 of 15 cities.
+#
+# RULE: a slug covers exactly the postal codes of that legal municipality,
+# including its sub-municipalities (deelgemeenten / anciennes communes), and
+# nothing else. A neighbouring municipality is a different city, however close.
+# Kuurne is not Kortrijk; Oostkamp is not Brugge; Beveren is not Sint-Niklaas.
+# The single deliberate exception is [cities.brussel] -- see the note there.
+#
+# Every list below was verified against the KBO Open Data address table: for each
+# code, the municipality the registry records for the companies at that code.
+# Where the registry and the official postal assignment disagree, the postal
+# assignment wins; the two known cases are noted inline.
 
 [cities.antwerpen]
 display = "Antwerpen"
-postcodes = ["2000", "2018", "2020", "2030", "2040", "2050", "2060"]
+# Districts: Antwerpen 2000/2018/2020/2030/2040/2050/2060, Deurne 2100,
+# Borgerhout 2140, Merksem 2170, Ekeren 2180, Berchem 2600, Wilrijk 2610,
+# Hoboken 2660. 2150 is Borsbeek, which merged into Antwerpen on 2025-01-01 and
+# is why the registry shows Antwerpen=1719 against Borsbeek=190 there.
+postcodes = [
+    "2000",
+    "2018",
+    "2020",
+    "2030",
+    "2040",
+    "2050",
+    "2060",
+    "2100",
+    "2140",
+    "2150",
+    "2170",
+    "2180",
+    "2600",
+    "2610",
+    "2660",
+]
 
 [cities.gent]
 display = "Gent"
-postcodes = ["9000", "9030", "9032", "9040", "9050"]
+# Mariakerke 9030, Drongen 9031, Wondelgem 9032, Sint-Amandsberg 9040,
+# Oostakker 9041, Desteldonk/Mendonk/Sint-Kruis-Winkel 9042,
+# Gentbrugge/Ledeberg 9050, Sint-Denijs-Westrem/Afsnee 9051, Zwijnaarde 9052.
+postcodes = [
+    "9000",
+    "9030",
+    "9031",
+    "9032",
+    "9040",
+    "9041",
+    "9042",
+    "9050",
+    "9051",
+    "9052",
+]
 
 [cities.brussel]
 display = "Brussel"
+# DELIBERATE EXCEPTION to the one-municipality rule: this slug covers all 19
+# communes of the Brussels-Capital Region, not just the City of Brussels
+# (1000/1020/1120/1130). The 19 communes are one functional market and one
+# goudengids/pagesdor target; splitting them would drop ~90% of the region's
+# companies for no gain. Because of this, city_for_postal_code() will label a
+# company in Schaarbeek as "brussel" -- intended, not a bug.
 postcodes = [
     "1000",
     "1020",
@@ -25,6 +80,8 @@ postcodes = [
     "1082",
     "1083",
     "1090",
+    "1120",
+    "1130",
     "1140",
     "1150",
     "1160",
@@ -37,52 +94,129 @@ postcodes = [
 
 [cities.oostende]
 display = "Oostende"
-postcodes = ["8400", "8401"]
+# Stene, Zandvoorde and Mariakerke all share 8400. 8401 was listed here but is
+# not an Oostende code: the only two rows carrying it in the registry are in
+# Winterthur, Switzerland.
+postcodes = ["8400"]
 
 [cities.brugge]
 display = "Brugge"
+# Sint-Andries/Sint-Michiels 8200, Assebroek/Sint-Kruis 8310,
+# Dudzele/Lissewege/Zeebrugge 8380. 8310 and 8380 were missing from the curated
+# override, which made ~30% of Brugge unreachable, while 8020 (Oostkamp, a
+# separate municipality) was wrongly included.
 postcodes = ["8000", "8200", "8310", "8380"]
 
 [cities.leuven]
 display = "Leuven"
+# Heverlee 3001, Kessel-Lo 3010, Wilsele 3012, Wijgmaal 3018. 3020 is Herent, a
+# separate municipality. 3030 is not a Belgian postcode at all -- the three rows
+# carrying it are in Limassol and Australia.
 postcodes = ["3000", "3001", "3010", "3012", "3018"]
-
-[cities.hasselt]
-display = "Hasselt"
-postcodes = ["3500", "3501", "3510"]
 
 [cities.mechelen]
 display = "Mechelen"
-postcodes = ["2800"]
+# Walem 2801, Hombeek 2811, Muizen 2812. 2820-2870 are Bonheiden, Willebroek,
+# Rumst, Niel, Boom, Sint-Katelijne-Waver and Puurs-Sint-Amands.
+postcodes = ["2800", "2801", "2811", "2812"]
 
-[cities.aalst]
-display = "Aalst"
-postcodes = ["9300", "9308", "9320"]
+[cities.hasselt]
+display = "Hasselt"
+# Wimmertingen 3501, Kermt/Spalbeek 3510, Kuringen 3511, Stevoort 3512.
+# 3520-3560 are Zonhoven, Houthalen-Helchteren, Herk-de-Stad, Heusden-Zolder and
+# Lummen. NOTE: the registry reports "Hasselt" for most companies at 3720-3724,
+# but those codes are Kortessem -- companies there self-report the nearest big
+# city. Kortessem is the dominant municipality of no postcode in the registry,
+# which is the giveaway. Postal assignment wins, so they are excluded.
+postcodes = ["3500", "3501", "3510", "3511", "3512"]
 
 [cities.kortrijk]
 display = "Kortrijk"
+# Bissegem/Heule/Marke 8501/8510/8511. 8520-8560 are Kuurne, Harelbeke,
+# Deerlijk, Zwevegem and Wevelgem.
 postcodes = ["8500", "8501", "8510", "8511"]
+
+[cities.aalst]
+display = "Aalst"
+# Erembodegem 9300/9320, Gijzegem 9308, Moorsel/Baardegem/Herdersem 9310.
+# 9340 is Lede; 9400/9406 are Ninove.
+postcodes = ["9300", "9308", "9310", "9320"]
 
 [cities.sint-niklaas]
 display = "Sint-Niklaas"
-postcodes = ["9100", "9111", "9112", "9120"]
+# Belsele 9111, Nieuwkerken-Waas 9112. Everything from 9120 up belongs to
+# Beveren-Kruibeke-Zwijndrecht, Temse, Lokeren, Sint-Gillis-Waas, Lochristi or
+# Stekene -- 9120 was in both files and is Beveren.
+postcodes = ["9100", "9111", "9112"]
 
 [cities.roeselare]
 display = "Roeselare"
+# Beveren, Rumbeke and Oekene all share 8800.
 postcodes = ["8800"]
-
-[cities.namen]
-display = "Namen / Namur"
-postcodes = ["5000", "5001", "5002", "5004", "5020"]
-
-[cities.luik]
-display = "Luik / Liège"
-postcodes = ["4000", "4020", "4030", "4031", "4032"]
 
 [cities.charleroi]
 display = "Charleroi"
-postcodes = ["6000", "6001", "6010", "6020", "6030", "6031", "6032", "6040", "6041", "6042"]
+# Marcinelle 6001, Jumet 6040, Gosselies 6041, Gilly 6060 and the former
+# communes at 6030-6044 and 6061. 6110, 6140 and 6150 are Montigny-le-Tilleul,
+# Fontaine-l'Évêque and Anderlues.
+postcodes = [
+    "6000",
+    "6001",
+    "6010",
+    "6020",
+    "6030",
+    "6031",
+    "6032",
+    "6040",
+    "6041",
+    "6042",
+    "6043",
+    "6044",
+    "6060",
+    "6061",
+]
 
-[cities.bergen]
+[cities.liege]
+display = "Luik / Liège"
+# Rocourt 4000, Wandre 4020, Grivegnée/Angleur/Chênee 4030-4032. 4040-4042 are
+# Herstal, a separate municipality.
+postcodes = ["4000", "4020", "4030", "4031", "4032"]
+
+[cities.mons]
 display = "Bergen / Mons"
-postcodes = ["7000", "7011", "7012", "7020", "7021", "7022", "7030"]
+# Havré 7021, Hyon 7022, Ciply 7024, Villers-Saint-Ghislain 7031, Spiennes 7032,
+# Cuesmes 7033, Obourg 7034. 7040-7080 are Quevy, Jurbise, Soignies, Le Roeulx
+# and Frameries.
+postcodes = [
+    "7000",
+    "7010",
+    "7011",
+    "7012",
+    "7020",
+    "7021",
+    "7022",
+    "7024",
+    "7030",
+    "7031",
+    "7032",
+    "7033",
+    "7034",
+]
+
+[cities.namur]
+display = "Namen / Namur"
+# Jambes 5100 and Naninne/Wépion/Wierde/Dave 5101 hold 9,101 registry entities
+# between them and were missing from every previous list.
+postcodes = [
+    "5000",
+    "5001",
+    "5002",
+    "5003",
+    "5004",
+    "5020",
+    "5021",
+    "5022",
+    "5024",
+    "5100",
+    "5101",
+]

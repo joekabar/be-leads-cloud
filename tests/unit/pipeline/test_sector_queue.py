@@ -175,7 +175,11 @@ class TestRotationConfig:
         assert not cities & {"charleroi", "liege", "luik", "mons", "bergen", "namur", "namen"}
 
     def test_rotation_has_no_gent_ghent_duplicate(self) -> None:
-        """city_map.toml carries both spellings for the same place."""
+        """Both spellings resolve to the same city, so listing both scrapes it twice.
+
+        city_map.toml declares "ghent" as an alias of "gent" rather than a second entry
+        with a copy of the postcodes — see TestAliases in test_city_map.py.
+        """
         from scraper.pipeline.sector_queue import load_rotation_cities
 
         cities = set(load_rotation_cities())

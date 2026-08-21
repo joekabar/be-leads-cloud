@@ -84,9 +84,14 @@ class TestBuildSelectionSql:
 
 class TestResolveCityPostcodes:
     def test_known_city_returns_postcodes(self) -> None:
+        """8400 covers Oostende whole — Stene, Zandvoorde and Mariakerke included.
+
+        This used to assert 8401 as well, which is not an Oostende code: the only two
+        rows carrying it in the KBO registry are in Winterthur, Switzerland.
+        """
         from scraper.ui.export import resolve_city_postcodes
 
-        assert resolve_city_postcodes(["oostende"]) == ["8400", "8401"]
+        assert resolve_city_postcodes(["oostende"]) == ["8400"]
 
     def test_multiple_cities_are_unioned(self) -> None:
         from scraper.ui.export import resolve_city_postcodes

@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the city postcode map was wrong for 13 of 15 cities
+
+- `pipeline/city_map.toml` carried a curated postcode list per city that **overrode**
+  `lib/postcodes.toml`. The two had drifted, and the override was the worse of the pair.
+  Audited against the KBO Open Data address table, 13 of 15 curated cities were wrong.
+- Surfaced by the first Brugge run (2026-08-21). Three sectors — `dakdekkers`,
+  `carrosserieherstellers`, `cateringbedrijven` — fetched cards and wrote **zero**
+  observations while reporting success: `cards_found=30 cards_out_of_city=30`. Every card
+  was discarded by the postcode filter. Brugge was mapped to `["8000","8020","8200"]`, so:
+  - `8310` (Assebroek, Sint-Kruis) and `8380` (Zeebrugge, Lissewege, Dudzele) were
+    **missing** — roughly 30% of the city could not be scraped at all; and
+  - `8020` is **Oostkamp**, a separate municipality — 4,490 observations already carry it,
+    scraped and exported as if they were Brugge.
+- Both directions are silent. A missing code loses companies that are never fetched; an
+  extra code sells a company as being somewhere it is not.
+- Rule now stated and enforced: a slug covers exactly one legal municipality, including its
+  sub-municipalities, and nothing else. Kuurne is not Kortrijk; Beveren is not Sint-Niklaas.
+  `brussel` is the one deliberate exception — all 19 Brussels-Capital communes, since they
+  are a single market and a single goudengids/pagesdor target.
+- Net effect against the registry: **+32,631 companies become reachable** (namur regained
+  `5100`/`5101` = 9,102; brugge +9,678; charleroi +8,338; antwerpen +1,909 for the 2025
+  Borsbeek merger) and **160,959 stop being attributed to the wrong city** (sint-niklaas was
+  71% other municipalities, hasselt 52%, mechelen 56%).
+- Two registry traps handled explicitly: companies at `3720`–`3724` self-report "Hasselt"
+  but those codes are Kortessem, so postal assignment wins over the registry; and `8401`,
+  `3030`, `9110`, `9219`, `2008` appear in KBO only as a handful of foreign addresses
+  (Winterthur, Limassol) and are excluded.
+
+### Fixed — export's `city` column was blank for Gent, Liège, Mons and Namur
+
+- `gent`/`ghent`, `liege`/`luik`, `mons`/`bergen` and `namur`/`namen` existed as separate
+  entries each holding a copy of the same postcode list. `city_for_postal_code()` drops any
+  code claimed by more than one slug rather than guessing, so every one of those postcodes
+  resolved to `None` and the exported `city` column came out empty for all four cities.
+- They are now `alias_of` declarations, which add no second owner. The two spellings can no
+  longer drift apart either.
+
+### Changed — `postcodes.toml` is authoritative; `city_map.toml` may only supplement
+
+- Precedence inverted. `city_map.toml` may add cities `postcodes.toml` does not define and
+  declare aliases; an entry redefining a city it already owns is ignored, and a test fails
+  the build if one is added. Two competing lists for one city was the bug, not the fix.
+- The Walloon slugs in `postcodes.toml` were renamed `bergen`→`mons`, `luik`→`liege`,
+  `namen`→`namur` so the canonical slug matches the one the CLI and rotation already use;
+  the old spellings keep working as aliases. Neither had ever been scraped.
+
 ### Fixed — uv's progress output on stderr killed every scheduled run for five days
 
 - `nightly_scrape.ps1` and `daily_export.ps1` captured CLI output with `2>&1` under

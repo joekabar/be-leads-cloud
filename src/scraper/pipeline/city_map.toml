@@ -1,58 +1,47 @@
-# Belgian city → postal code list.
-# Slugs must match the lowercase city slug used with --city.
-# Each city lists ALL postal codes belonging to it (including sub-municipalities).
+# Supplements to lib/postcodes.toml, which is the authoritative postcode source.
+#
+# This file used to carry a second, curated postcode list per city that OVERRODE
+# postcodes.toml. The two drifted badly and the override was the worse of the
+# pair: an audit against the KBO registry found 13 of 15 curated cities wrong,
+# in two ways.
+#
+#   Missing codes  -- brugge lacked 8310 and 8380 (Assebroek, Sint-Kruis,
+#                     Zeebrugge, Lissewege, Dudzele), making ~30% of the city
+#                     unreachable; namur lacked 5100/5101 (9,101 entities);
+#                     mons, charleroi and antwerpen were likewise short.
+#   Extra codes    -- brugge included 8020 (Oostkamp), kortrijk included Kuurne,
+#                     Harelbeke, Deerlijk, Zwevegem and Wevelgem, mechelen
+#                     included Boom and Willebroek, and so on. Those companies
+#                     were scraped and exported as if they were in the city.
+#
+# So the precedence is inverted: postcodes.toml wins, and this file may only
+# ADD cities that postcodes.toml does not define, or declare aliases. Two
+# competing lists for one city is the bug, not the fix.
+#
+# Add a city here only when it is genuinely absent from postcodes.toml:
+#
+#   [some-city]
+#   postal_codes = ["1234", "5678"]
 
-[antwerpen]
-postal_codes = [
-    "2000","2018","2020","2030","2040","2050","2060",
-    "2100","2140","2170","2180","2610","2050","2600","2660"
-]
-
-[gent]
-postal_codes = [
-    "9000","9030","9031","9032","9040","9041","9042","9050","9051","9052"
-]
-
-[brussel]
-postal_codes = [
-    "1000","1020","1030","1040","1050","1060","1070","1080","1081","1082",
-    "1083","1090","1120","1130","1140","1150","1160","1170","1180","1190","1210"
-]
-
-[liege]
-postal_codes = ["4000","4020","4030","4031","4032","4040","4041","4042"]
-
-[charleroi]
-postal_codes = ["6000","6001","6010","6020","6030","6040","6041","6060","6110","6140","6150"]
-
-[brugge]
-postal_codes = ["8000","8020","8200"]
-
-[namur]
-postal_codes = ["5000","5001","5002","5003","5004","5020","5021","5022","5024"]
-
-[leuven]
-postal_codes = ["3000","3001","3010","3012","3018","3020","3030"]
-
-[mechelen]
-postal_codes = ["2800","2801","2811","2812","2820","2830","2840","2845","2850","2860","2870"]
-
-[hasselt]
-postal_codes = ["3500","3501","3510","3511","3512","3520","3530","3540","3550","3560"]
-
-[kortrijk]
-postal_codes = ["8500","8501","8510","8511","8520","8530","8540","8550","8560"]
-
-[mons]
-postal_codes = ["7000","7010","7011","7012","7020","7030","7034","7040","7050","7060","7070","7080"]
-
-[aalst]
-postal_codes = ["9300","9308","9310","9320","9340","9400","9406"]
-
-[sint-niklaas]
-postal_codes = ["9100","9111","9112","9120","9130","9140","9150","9160","9170","9180","9185","9190"]
+# ---------------------------------------------------------------------------
+# Aliases: alternative spellings that resolve to one canonical slug.
+#
+# These used to be duplicate entries holding a copy of the same postcode list,
+# which broke city_for_postal_code(): it drops any code claimed by more than one
+# slug rather than guessing, so every Gent, Liege, Mons and Namur postcode had
+# two owners and resolved to None. The export's `city` column was therefore
+# blank for all four cities. An alias adds no owner, so the reverse lookup works
+# and the two spellings can no longer drift apart.
+# ---------------------------------------------------------------------------
 
 [ghent]
-postal_codes = [
-    "9000","9030","9031","9032","9040","9041","9042","9050","9051","9052"
-]
+alias_of = "gent"
+
+[luik]
+alias_of = "liege"
+
+[bergen]
+alias_of = "mons"
+
+[namen]
+alias_of = "namur"
