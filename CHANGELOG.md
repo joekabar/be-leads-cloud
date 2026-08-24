@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — a two-day scraping outage reported `exit=0` four times
+
+- On 2026-08-22 and 2026-08-23 every sector of all four scheduled runs failed with
+  `Page.goto: net::ERR_NAME_NOT_RESOLVED at https://www.goudengids.be/` — a transient DNS
+  failure on the host. Forty sector failures, **zero observations across two full days**,
+  ~2.7 hours of runtime, and every run logged `END exit=0 sectors_done=0 blocks=0`.
+- The wrapper decided success by grepping the log for `goudengids_sector_done`, which
+  counts sectors **attempted**, and never counted `goudengids_sector_failed` at all. So a
+  night where everything failed was indistinguishable from "nothing left to scrape". The
+  same grep reported `sectors_done=10` for the 2026-08-24 run that the batch itself scored
+  as 6.
+- `be-leads-pipeline-batch` gains `--summary-json PATH`, writing the end-of-run summary it
+  already builds as UTF-8 JSON. `nightly_scrape.ps1` reads that instead of parsing a
+  UTF-16 log tail, and falls back to the old grep — with a `NOTE` — if the file is absent,
+  which itself means the batch died before writing it.
+- The state line now reads `END exit=4 scraped=0/10 failed=10 blocks=0 reason=sector-failures
+  :: Page.goto: net::ERR_NAME_NOT_RESOLVED ...` — verified by replaying the recorded
+  2026-08-22 and 2026-08-24 logs through the shipped decision block.
+- New exit codes, because a Scheduled Task's `LastTaskResult` is the only thing most people
+  glance at: **4** = sectors failed outright (DNS, browser never reached the site);
+  **5** = scraped fine but a source failed. A *blocked* sector is not a failure — it stays
+  queued and is still reported separately.
+- A summary file that cannot be written is logged and swallowed: the observations are
+  already committed by then, and losing a 49-minute run over a reporting file would be a
+  worse failure than the one it exists to surface.
+
+### Found — Brave cross-validation has been off since 2026-08-21
+
+- The 2026-08-24 batch summary carries `"sources_failed": {"ddg_brave": "terminal HTTP 402"}`
+  — Payment Required. The free tier's 2,000 queries/month is exhausted or the subscription
+  lapsed. 180 candidates were queued for validation and none ran. Needs an account change,
+  not a code change; it is now surfaced as `exit=5` rather than passing silently.
+
 ### Fixed — the daily export was pinned to one city while the scraper rotated past it
 
 - The scheduled task ran `daily_export.ps1 -City oostende`, and the script itself defaulted

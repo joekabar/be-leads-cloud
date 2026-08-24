@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from scraper.pipeline.batch_cli import _build_parser, _resolve_api_keys, cli_main
+from scraper.pipeline.batch_cli import (
+    _build_parser,
+    _resolve_api_keys,
+    _write_summary,
+    cli_main,
+)
 
 
 class TestApiKeyResolution:
@@ -208,3 +215,63 @@ class TestCliMainErrors:
             with pytest.raises(SystemExit) as exc:
                 cli_main()
             assert exc.value.code == 2
+
+
+class TestSummaryJson:
+    """The batch already knows exactly how it went; nothing downstream could read it.
+
+    ``nightly_scrape.ps1`` decided success by grepping the run log for
+    ``goudengids_sector_done``, which counts sectors *attempted*. On 2026-08-22 and
+    2026-08-23 a DNS failure (``ERR_NAME_NOT_RESOLVED``) made all ten sectors fail in
+    each of four consecutive runs; every one logged ``END exit=0 sectors_done=0
+    blocks=0`` — indistinguishable from "nothing left to scrape". Two days, zero
+    observations, no alarm. The same grep reported ``sectors_done=10`` for a run the
+    batch itself scored as 6.
+
+    Writing the summary to a file the caller names removes the guesswork: the wrapper
+    reads structured JSON instead of parsing a UTF-16 log tail.
+    """
+
+    def test_flag_defaults_to_none(self) -> None:
+        args = _build_parser().parse_args(["--city", "brugge", "--all-sectors"])
+        assert args.summary_json is None
+
+    def test_flag_is_parsed(self) -> None:
+        args = _build_parser().parse_args(
+            ["--city", "brugge", "--all-sectors", "--summary-json", "out/s.json"]
+        )
+        assert args.summary_json == "out/s.json"
+
+    def test_writes_utf8_json(self, tmp_path: Path) -> None:
+        target = tmp_path / "summary.json"
+        payload = {"city": "brugge", "goudengids_sectors_scraped": 6, "sources_failed": {}}
+        _write_summary(str(target), payload)
+        assert json.loads(target.read_text(encoding="utf-8")) == payload
+
+    def test_creates_missing_parent_directory(self, tmp_path: Path) -> None:
+        target = tmp_path / "nested" / "deeper" / "summary.json"
+        _write_summary(str(target), {"city": "gent"})
+        assert target.is_file()
+
+    def test_non_ascii_survives_the_round_trip(self, tmp_path: Path) -> None:
+        """Liège and Sint-Kruis both appear in city and municipality strings."""
+        target = tmp_path / "s.json"
+        _write_summary(str(target), {"city": "liège", "note": "Sint-Kruis — 8310"})
+        assert json.loads(target.read_text(encoding="utf-8"))["city"] == "liège"
+
+    def test_unwritable_path_does_not_raise(self, tmp_path: Path) -> None:
+        """A summary that cannot be written must not discard a 49-minute batch run.
+
+        The file is a reporting convenience; the observations are already committed by
+        the time it is written. Losing the run over it would be a worse failure than the
+        one it exists to surface.
+        """
+        clash = tmp_path / "taken"
+        clash.mkdir()
+        _write_summary(str(clash), {"city": "brugge"})  # a directory, not a file
+
+    def test_returns_whether_it_wrote(self, tmp_path: Path) -> None:
+        assert _write_summary(str(tmp_path / "ok.json"), {"a": 1}) is True
+        clash = tmp_path / "dir"
+        clash.mkdir()
+        assert _write_summary(str(clash), {"a": 1}) is False

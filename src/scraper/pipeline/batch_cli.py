@@ -91,7 +91,34 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="H",
         help="Skip ddg/brave for KBOs validated within this many hours (default: 168 = 7 days).",
     )
+    p.add_argument(
+        "--summary-json",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Also write the end-of-run summary to this file as UTF-8 JSON, so a caller "
+            "can judge the run without parsing the log."
+        ),
+    )
     return p
+
+
+def _write_summary(path: str, summary: dict[str, object]) -> bool:
+    """Write *summary* to *path* as UTF-8 JSON. Return whether it was written.
+
+    A failure here is logged and swallowed. The file is a reporting convenience and the
+    observations are already committed by the time it is written, so losing a
+    49-minute batch run over an unwritable path would be a worse failure than the one
+    this file exists to surface.
+    """
+    try:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+    except OSError as exc:
+        print(f"Warning: could not write --summary-json {path}: {exc}", file=sys.stderr)
+        return False
+    return True
 
 
 def _resolve_api_keys(brave_arg: str | None, nbb_arg: str | None) -> tuple[str | None, str | None]:
@@ -226,6 +253,8 @@ def cli_main() -> None:
             "duration_s": round(report.duration_s, 2),
         }
         print(json.dumps(result, indent=2))
+        if args.summary_json:
+            _write_summary(args.summary_json, result)
         print(
             f"city={report.city} sectors={len(report.sectors)} "
             f"kbos={report.phase_a_kbos} companies={report.companies_in_view} "

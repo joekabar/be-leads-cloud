@@ -14,6 +14,14 @@
     NOTE: keep this file pure ASCII. Windows PowerShell 5.1 reads a BOM-less UTF-8 script
     as ANSI, so a non-ASCII character inside a string breaks the parser.
 
+    Exit codes -- the Scheduled Task's LastTaskResult is the only thing most people
+    glance at, so a night that produced nothing must not report 0:
+      0  scraped normally (a blocked sector is expected and stays queued)
+      1  unhandled terminating error, or a non-zero exit from the batch
+      3  database unavailable
+      4  sectors failed outright, e.g. DNS or the browser never reached the site
+      5  scraped fine, but a source failed, e.g. the Brave API returning HTTP 402
+
 .EXAMPLE
     .\nightly_scrape.ps1 -City oostende -Limit 15
 #>
@@ -251,11 +259,17 @@ if ($sectors.Count -eq 0) {
 $joined = $sectors -join ', '
 Write-State "SCRAPE $($sectors.Count) sectors: $joined"
 
+$summaryFile = Join-Path $LogDir "batch_summary_${City}_${stamp}.json"
+
 $argList = @('run', 'be-leads-pipeline-batch', '--city', $City)
 foreach ($s in $sectors) { $argList += @('--sector', $s) }
 
 # Staging is already loaded, so spend the night on discovery rather than re-emitting KBO.
 $argList += @('--skip-kbo-dump')
+
+# The batch already knows exactly how the night went. Have it say so in a file rather
+# than making this script infer it from the log -- see the summary handling below.
+$argList += @('--summary-json', $summaryFile)
 
 # Windows PowerShell 5.1 wraps every stderr line from a native exe in a NativeCommandError
 # record. Under $ErrorActionPreference = 'Stop' that record is terminating, so the script
@@ -272,14 +286,70 @@ try {
     $ErrorActionPreference = $prevEap
 }
 
-$done    = @(Select-String -Path $log -Pattern 'goudengids_sector_done' -ErrorAction SilentlyContinue).Count
+# How the night actually went.
+#
+# This used to be decided by grepping the log for 'goudengids_sector_done', which counts
+# sectors ATTEMPTED, not sectors that produced anything. On 2026-08-22 and 2026-08-23 a
+# DNS failure (ERR_NAME_NOT_RESOLVED) made all ten sectors fail in each of four
+# consecutive runs, and every one of them logged 'END exit=0 sectors_done=0 blocks=0' --
+# indistinguishable from 'nothing left to scrape'. Two days, zero observations, no alarm.
+# The same grep reported sectors_done=10 for a run the batch itself scored as 6.
+#
+# So read the batch's own summary. Fall back to the old grep only if the file is missing,
+# which means the batch died before writing it -- itself worth reporting.
 $blocked = @(Select-String -Path $log -Pattern 'goudengids_imperva_block' -ErrorAction SilentlyContinue).Count
+$sectorFailures = @(Select-String -Path $log -Pattern 'goudengids_sector_failed' -ErrorAction SilentlyContinue).Count
 
-Write-State "END exit=$code sectors_done=$done blocks=$blocked log=$log"
-Write-Output "Scraped $done sectors, $blocked blocked. Log: $log"
+$scraped   = $null
+$attempted = $sectors.Count
+$failedSources = @()
+
+if (Test-Path $summaryFile) {
+    try {
+        $summary = Get-Content -Path $summaryFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $scraped   = [int] $summary.goudengids_sectors_scraped
+        $attempted = [int] $summary.sectors
+        if ($summary.sources_failed) {
+            $failedSources = @($summary.sources_failed.PSObject.Properties |
+                ForEach-Object { "$($_.Name)=$($_.Value)" })
+        }
+    } catch {
+        Write-State "NOTE could not read $summaryFile :: $($_.Exception.Message)"
+    }
+} else {
+    Write-State "NOTE batch wrote no summary file, falling back to log counting"
+}
+
+if ($null -eq $scraped) {
+    $scraped = @(Select-String -Path $log -Pattern 'goudengids_sector_done' -ErrorAction SilentlyContinue).Count
+}
+
+# A sector that finished but inserted nothing is normal -- everything it found was
+# already seen inside the dedup window. A sector that FAILED is not. Blocks are counted
+# and reported separately; they leave the sector queued and are expected on this host.
+$reason = ''
+if ($code -ne 0) {
+    $reason = 'batch-exit'
+} elseif ($sectorFailures -gt 0) {
+    $code = 4
+    $firstError = (Select-String -Path $log -Pattern 'goudengids_sector_failed' -ErrorAction SilentlyContinue |
+        Select-Object -First 1).Line
+    if ($firstError -match "error='([^']{0,160})") { $reason = "sector-failures :: $($Matches[1])" }
+    else { $reason = 'sector-failures' }
+} elseif ($failedSources.Count -gt 0) {
+    $code = 5
+    $reason = "source-failed :: $($failedSources -join ', ')"
+}
+
+$suffix = if ($reason) { " reason=$reason" } else { '' }
+Write-State "END exit=$code scraped=$scraped/$attempted failed=$sectorFailures blocks=$blocked log=$log$suffix"
+Write-Output "Scraped $scraped of $attempted sectors, $sectorFailures failed, $blocked blocked. Log: $log"
 
 if ($blocked -gt 0) {
     Write-State "NOTE $blocked sectors were blocked and remain queued for the next night"
+}
+foreach ($f in $failedSources) {
+    Write-State "NOTE source failed: $f"
 }
 
 exit $code
