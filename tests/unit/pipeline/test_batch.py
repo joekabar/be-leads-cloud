@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import structlog
 
 from scraper.pipeline.batch import (
     BatchConfig,
@@ -18,6 +19,14 @@ from scraper.pipeline.batch import (
     resolve_snapshot_date,
     run_batch,
 )
+
+
+def _fake_pool() -> AsyncMock:
+    return AsyncMock()
+
+
+def _fake_polite_client() -> MagicMock:
+    return MagicMock()
 
 
 class TestResolveNacePrefixes:
@@ -377,11 +386,12 @@ class TestRunBatch:
         polite_client = MagicMock()
         log = MagicMock()
 
-        result = await _run_goudengids_sector(
+        result, error = await _run_goudengids_sector(
             "energieproducenten", "antwerpen", "nl", 5, pool, polite_client, log
         )
 
         assert result == 0
+        assert error is None
 
     async def test_goudengids_unknown_sector_returns_zero(self) -> None:
         """_run_goudengids_sector returns 0 for unknown sector slug."""
@@ -391,11 +401,12 @@ class TestRunBatch:
         polite_client = MagicMock()
         log = MagicMock()
 
-        result = await _run_goudengids_sector(
+        result, error = await _run_goudengids_sector(
             "totally-unknown-sector-xyz", "antwerpen", "nl", 5, pool, polite_client, log
         )
 
         assert result == 0
+        assert error is None
 
     async def test_goudengids_phase_b_runs_indexed_sector(self) -> None:
         """Lines 566-594: _phase_b loops sectors and collects run_ids when do_goudengids=True."""
@@ -421,7 +432,10 @@ class TestRunBatch:
         )
 
         with (
-            patch("scraper.pipeline.batch._run_goudengids_sector", new=AsyncMock(return_value=5)),
+            patch(
+                "scraper.pipeline.batch._run_goudengids_sector",
+                new=AsyncMock(return_value=(5, None)),
+            ),
             patch("scraper.pipeline.batch.consolidate", new=AsyncMock(return_value=[])),
             patch("scraper.pipeline.batch.refresh_prospect_scores", new=AsyncMock(return_value=0)),
         ):
@@ -576,7 +590,10 @@ class TestRunBatch:
         )
 
         with (
-            patch("scraper.pipeline.batch._run_goudengids_sector", new=AsyncMock(return_value=3)),
+            patch(
+                "scraper.pipeline.batch._run_goudengids_sector",
+                new=AsyncMock(return_value=(3, None)),
+            ),
             patch("scraper.pipeline.batch.consolidate", new=AsyncMock(return_value=[])),
             patch("scraper.pipeline.batch.refresh_prospect_scores", new=AsyncMock(return_value=0)),
         ):
@@ -1305,11 +1322,12 @@ class TestRunGoudengidsSector:
                 new=AsyncMock(return_value=mock_report),
             ),
         ):
-            result = await _run_goudengids_sector(
+            result, error = await _run_goudengids_sector(
                 "elektriciens", "antwerpen", "nl", 5, pool, polite_client, log
             )
 
         assert result == 5
+        assert error is None
 
     async def test_success_fr_uses_pagesdor_domain(self) -> None:
         """Line 436: lang=='fr' selects pagesdor.be domain."""
@@ -1331,11 +1349,12 @@ class TestRunGoudengidsSector:
                 new=AsyncMock(return_value=mock_report),
             ),
         ):
-            result = await _run_goudengids_sector(
+            result, error = await _run_goudengids_sector(
                 "elektriciens", "liège", "fr", 5, pool, polite_client, log
             )
 
         assert result == 2
+        assert error is None
 
     async def test_value_error_returns_zero(self) -> None:
         """Lines 456-458: ValueError from ingest_sector_city is swallowed."""
@@ -1352,11 +1371,12 @@ class TestRunGoudengidsSector:
                 new=AsyncMock(side_effect=ValueError("no results")),
             ),
         ):
-            result = await _run_goudengids_sector(
+            result, error = await _run_goudengids_sector(
                 "elektriciens", "antwerpen", "nl", 5, pool, polite_client, log
             )
 
         assert result == 0
+        assert error is None
 
     async def test_generic_exception_returns_zero(self) -> None:
         """Lines 459-461: generic Exception from ingest_sector_city is swallowed."""
@@ -1373,8 +1393,64 @@ class TestRunGoudengidsSector:
                 new=AsyncMock(side_effect=RuntimeError("browser crashed")),
             ),
         ):
-            result = await _run_goudengids_sector(
+            result, error = await _run_goudengids_sector(
                 "elektriciens", "antwerpen", "nl", 5, pool, polite_client, log
             )
 
         assert result == 0
+        assert error == "RuntimeError: browser crashed"
+
+
+class TestSectorErrorsReachTheReport:
+    """A sector that FAILED must be distinguishable from one that found nothing.
+
+    On 2026-08-22/23, DNS failures made all ten sectors of four consecutive runs raise
+    inside _run_goudengids_sector, whose `except Exception` returned 0 — the same value
+    an empty sector returns. Four runs reported exit=0; two days produced zero
+    observations with no alarm.
+    """
+
+    async def test_ingest_exception_is_recorded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def _boom(*args: object, **kwargs: object) -> object:
+            raise RuntimeError("net::ERR_NAME_NOT_RESOLVED at https://www.goudengids.be/")
+
+        import scraper.sources.goudengids.ingester as ingester_mod
+
+        monkeypatch.setattr(ingester_mod, "ingest_sector_city", _boom)
+
+        from scraper.pipeline.batch import _run_goudengids_sector
+
+        obs, err = await _run_goudengids_sector(
+            "hotels",
+            "brugge",
+            "nl",
+            25,
+            _fake_pool(),
+            _fake_polite_client(),
+            structlog.get_logger(),
+        )
+        assert obs == 0
+        assert err is not None and "ERR_NAME_NOT_RESOLVED" in err
+
+    async def test_no_results_is_not_an_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """ValueError = sector not indexed / empty: expected, must stay err=None."""
+
+        async def _empty(*args: object, **kwargs: object) -> object:
+            raise ValueError("no results")
+
+        import scraper.sources.goudengids.ingester as ingester_mod
+
+        monkeypatch.setattr(ingester_mod, "ingest_sector_city", _empty)
+
+        from scraper.pipeline.batch import _run_goudengids_sector
+
+        obs, err = await _run_goudengids_sector(
+            "hotels",
+            "brugge",
+            "nl",
+            25,
+            _fake_pool(),
+            _fake_polite_client(),
+            structlog.get_logger(),
+        )
+        assert (obs, err) == (0, None)

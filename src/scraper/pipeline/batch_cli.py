@@ -244,6 +244,7 @@ def cli_main() -> None:
             "goudengids_sectors_scraped": sum(
                 1 for v in report.goudengids_per_sector.values() if v > 0
             ),
+            "goudengids_sector_errors": report.goudengids_sector_errors,
             "placeholders_resolved": report.placeholders_resolved,
             "companies_in_view": report.companies_in_view,
             "prospect_scores_computed": report.prospect_scores_computed,

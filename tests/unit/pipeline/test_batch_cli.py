@@ -275,3 +275,10 @@ class TestSummaryJson:
         clash = tmp_path / "dir"
         clash.mkdir()
         assert _write_summary(str(clash), {"a": 1}) is False
+
+    def test_summary_includes_sector_errors(self, tmp_path: Path) -> None:
+        target = tmp_path / "s.json"
+        _write_summary(str(target), {"goudengids_sector_errors": {"hotels": "boom"}})
+        assert json.loads(target.read_text(encoding="utf-8"))["goudengids_sector_errors"] == {
+            "hotels": "boom"
+        }

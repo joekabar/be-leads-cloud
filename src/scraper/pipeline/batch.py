@@ -110,6 +110,9 @@ class BatchReport:
     sources_failed: dict[str, str] = field(default_factory=dict)
     phase_a_kbos: int = 0
     goudengids_per_sector: dict[str, int] = field(default_factory=dict)
+    #: sector slug -> error string, for sectors whose scrape RAISED (DNS down, browser
+    #: dead). Empty for sectors that merely found nothing — those are not failures.
+    goudengids_sector_errors: dict[str, str] = field(default_factory=dict)
     enrichment_observations: dict[str, int] = field(default_factory=dict)
     placeholders_resolved: int = 0
     companies_in_view: int = 0
@@ -476,12 +479,17 @@ async def _run_goudengids_sector(
     polite_client: PoliteClient,
     log: structlog.BoundLogger,
     skip_recent_hours: int = 0,
-) -> int:
-    """Run goudengids for one sector. Returns observations inserted (0 on skip/failure)."""
+) -> tuple[int, str | None]:
+    """Run goudengids for one sector.
+
+    Returns ``(observations_inserted, error)``. ``error`` is ``None`` for success, for a
+    not-indexed sector, and for a ``ValueError`` (empty/not-indexed sector) — those are
+    expected, not failures. ``error`` is set only when the scrape itself raised.
+    """
     goud_slug = _resolve_goudengids_slug(sector_slug, lang)
     if goud_slug is None:
         log.info("goudengids_sector_not_indexed", sector_slug=sector_slug)
-        return 0
+        return 0, None
 
     from scraper.sources.goudengids.fetcher import BrowserListingFetcher
     from scraper.sources.goudengids.ingester import ingest_sector_city
@@ -509,13 +517,13 @@ async def _run_goudengids_sector(
             cards=report.cards_found,
             obs=report.observations_inserted,
         )
-        return report.observations_inserted
+        return report.observations_inserted, None
     except ValueError as exc:
         log.info("goudengids_no_results_for_sector", sector_slug=sector_slug, reason=str(exc))
-        return 0
+        return 0, None
     except Exception as exc:
         log.error("goudengids_sector_failed", sector_slug=sector_slug, error=str(exc))
-        return 0
+        return 0, _describe(exc)
 
 
 async def run_batch(
@@ -629,7 +637,7 @@ async def run_batch(
                 total=len(config.sectors),
                 message=f"goudengids: {sector_slug}",
             )
-            obs_count = await _run_goudengids_sector(
+            obs_count, sector_error = await _run_goudengids_sector(
                 sector_slug,
                 config.city,
                 config.lang,
@@ -640,6 +648,8 @@ async def run_batch(
                 skip_recent_hours=config.goudengids_skip_recent_hours,
             )
             report.goudengids_per_sector[sector_slug] = obs_count
+            if sector_error is not None:
+                report.goudengids_sector_errors[sector_slug] = sector_error
             # Collect run_ids for Phase C2 scope.
             run_ids_now = await pool.fetch(
                 # lower() on both sides: historical rows exist under both 'oostende'
