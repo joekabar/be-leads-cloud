@@ -27,7 +27,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--all-sectors",
         action="store_true",
-        help="Run all sectors defined in _SECTOR_NACE_PREFIXES.",
+        help="Run all sectors defined in SECTOR_NACE_PREFIXES.",
     )
     p.add_argument(
         "--nace",
@@ -140,7 +140,7 @@ def cli_main() -> None:
 
     from scraper.lib.errors import InvalidNaceError
     from scraper.lib.nace import parse_nace_input
-    from scraper.pipeline.orchestrator import _SECTOR_NACE_PREFIXES
+    from scraper.lib.sector_nace import SECTOR_NACE_PREFIXES
 
     try:
         extra_nace = parse_nace_input(" ".join(args.extra_nace))
@@ -149,13 +149,13 @@ def cli_main() -> None:
         sys.exit(2)
 
     if args.all_sectors:
-        sectors = list(_SECTOR_NACE_PREFIXES.keys())
+        sectors = list(SECTOR_NACE_PREFIXES.keys())
     elif args.sectors:
-        unknown = [s for s in args.sectors if s not in _SECTOR_NACE_PREFIXES]
+        unknown = [s for s in args.sectors if s not in SECTOR_NACE_PREFIXES]
         if unknown:
             print(
                 f"Error: unknown sector slug(s): {unknown}. "
-                f"Valid slugs: {sorted(_SECTOR_NACE_PREFIXES)}",
+                f"Valid slugs: {sorted(SECTOR_NACE_PREFIXES)}",
                 file=sys.stderr,
             )
             sys.exit(2)

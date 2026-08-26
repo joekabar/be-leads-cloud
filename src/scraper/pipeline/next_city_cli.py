@@ -16,7 +16,7 @@ import sys
 
 import asyncpg
 
-from scraper.pipeline.orchestrator import _SECTOR_NACE_PREFIXES
+from scraper.lib.sector_nace import SECTOR_NACE_PREFIXES
 from scraper.pipeline.sector_queue import (
     fetch_completed_by_city,
     goudengids_unscrapeable_sectors,
@@ -60,7 +60,7 @@ def cli_main() -> None:  # pragma: no cover
         print("No cities configured in scrape_cities.toml", file=sys.stderr)
         sys.exit(2)
 
-    all_sectors = sorted(_SECTOR_NACE_PREFIXES)
+    all_sectors = sorted(SECTOR_NACE_PREFIXES)
     unscrapeable = goudengids_unscrapeable_sectors(all_sectors)
 
     async def _run() -> str | None:

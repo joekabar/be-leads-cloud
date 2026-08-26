@@ -25,9 +25,9 @@ import structlog
 
 from scraper.db.repositories.runs import RunsRepo
 from scraper.lib.data_paths import SECTORS_TOML as _SECTORS_TOML
+from scraper.lib.sector_nace import SECTOR_NACE_PREFIXES
 from scraper.pipeline.city_map import get_postal_codes
 from scraper.pipeline.consolidate import consolidate
-from scraper.pipeline.orchestrator import _SECTOR_NACE_PREFIXES
 from scraper.pipeline.progress import ProgressReporter
 from scraper.scoring.prospect import refresh_prospect_scores
 from scraper.sources.kbo_dump.transformer import (
@@ -58,7 +58,7 @@ def resolve_nace_prefixes(sectors: list[str], extra_nace: list[str]) -> list[str
     """
     prefixes: dict[str, None] = {}
     for slug in sectors:
-        for prefix in _SECTOR_NACE_PREFIXES.get(slug, []):
+        for prefix in SECTOR_NACE_PREFIXES.get(slug, []):
             prefixes.setdefault(prefix, None)
     for prefix in extra_nace:
         prefixes.setdefault(prefix, None)

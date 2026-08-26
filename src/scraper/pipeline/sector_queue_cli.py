@@ -13,7 +13,7 @@ import sys
 
 import asyncpg
 
-from scraper.pipeline.orchestrator import _SECTOR_NACE_PREFIXES
+from scraper.lib.sector_nace import SECTOR_NACE_PREFIXES
 from scraper.pipeline.sector_queue import (
     fetch_completed_sectors,
     goudengids_unscrapeable_sectors,
@@ -62,7 +62,7 @@ def cli_main() -> None:  # pragma: no cover
             done = await fetch_completed_sectors(pool, city, within_hours=args.within_hours)
         finally:
             await pool.close()
-        all_sectors = sorted(_SECTOR_NACE_PREFIXES)
+        all_sectors = sorted(SECTOR_NACE_PREFIXES)
         return select_pending_sectors(
             all_sectors,
             done=done,
