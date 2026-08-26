@@ -149,3 +149,55 @@ async def run_health(pool: Any, *, migrations_dir: Path, export_dir: Path) -> li
         check_export_freshness(export_dir),
         await check_dead_slugs(pool),
     ]
+
+
+def render(checks: list[HealthCheck]) -> tuple[str, int]:
+    """Failures first — the terminal shows the top of the output, not the bottom."""
+    ordered = sorted(checks, key=lambda c: c.ok)
+    lines = [f"{'OK  ' if c.ok else 'FAIL'} {c.name}: {c.detail}" for c in ordered]
+    return "\n".join(lines), 0 if all(c.ok for c in checks) else 1
+
+
+def cli_main() -> None:  # pragma: no cover
+    import argparse
+    import asyncio
+    import sys
+    from pathlib import Path
+
+    import asyncpg
+
+    from scraper.lib.config import database_url, project_root
+
+    parser = argparse.ArgumentParser(description="Is data flowing? One answer, exit 0/1.")
+    parser.add_argument("--database-url", default=None)
+    parser.add_argument("--export-dir", default=None)
+    args = parser.parse_args()
+
+    dsn = args.database_url or database_url()
+    if not dsn:
+        print("DATABASE_URL is not set", file=sys.stderr)
+        sys.exit(2)
+    export_dir = Path(args.export_dir) if args.export_dir else project_root() / "exports"
+
+    from scraper.db.migrations import runner as _runner
+
+    migrations_dir = Path(_runner.__file__).parent
+
+    async def _run() -> list[HealthCheck]:
+        pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2)
+        if pool is None:
+            raise RuntimeError("asyncpg.create_pool returned None")
+        try:
+            return await run_health(pool, migrations_dir=migrations_dir, export_dir=export_dir)
+        finally:
+            await pool.close()
+
+    try:
+        checks = asyncio.run(_run())
+    except (OSError, asyncpg.PostgresError) as exc:
+        print(f"cannot reach the database: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    text, code = render(checks)
+    print(text)
+    sys.exit(code)

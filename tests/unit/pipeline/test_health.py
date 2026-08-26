@@ -17,12 +17,14 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from scraper.pipeline.health import (
+    HealthCheck,
     check_dead_slugs,
     check_export_freshness,
     check_migrations,
     check_scrape_freshness,
     check_source_freshness,
     check_staging,
+    render,
 )
 
 
@@ -109,3 +111,18 @@ class TestDeadSlugs:
     async def test_clean_queue_is_ok(self) -> None:
         r = await check_dead_slugs(_pool(fetch=[]))
         assert r.ok
+
+
+class TestRender:
+    def test_all_ok_exits_zero(self) -> None:
+        text, code = render([HealthCheck("staging", True, "fine")])
+        assert code == 0
+        assert "OK   staging: fine" in text
+
+    def test_any_failure_exits_one_and_is_listed_first(self) -> None:
+        text, code = render(
+            [HealthCheck("staging", True, "fine"), HealthCheck("scrape", False, "dead 50h")]
+        )
+        assert code == 1
+        lines = text.splitlines()
+        assert lines[0] == "FAIL scrape: dead 50h"
