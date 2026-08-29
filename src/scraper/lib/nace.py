@@ -1,7 +1,7 @@
 """Parse and normalise user-supplied NACE codes from the UI search parameters.
 
 Lets an operator target NACE prefixes directly instead of being limited to the
-predefined sector slugs in ``_SECTOR_NACE_PREFIXES``.
+predefined sector slugs in ``SECTOR_NACE_PREFIXES`` (``lib/sector_nace.py``).
 
 KBO Open Data stores NACE codes **without dots** (``43211``, not ``43.21``), and the
 staging filter matches with ``nace_code LIKE '<prefix>%'``. Anything entered here is

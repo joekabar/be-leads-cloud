@@ -227,11 +227,12 @@ async def fetch_results_for_run(
     nace_prefixes: list[str] | None = None
     sector_slugs: list[str] = []
     if sector:
-        from scraper.pipeline.orchestrator import _SECTOR_NACE_PREFIXES, resolve_sector_slugs
+        from scraper.lib.sector_nace import SECTOR_NACE_PREFIXES
+        from scraper.pipeline.orchestrator import resolve_sector_slugs
 
         try:
             nl_slug, fr_slug = resolve_sector_slugs(sector)
-            prefixes = _SECTOR_NACE_PREFIXES.get(nl_slug)
+            prefixes = SECTOR_NACE_PREFIXES.get(nl_slug)
             nace_prefixes = list(prefixes) if prefixes else None
             sector_slugs = [s for s in [nl_slug, fr_slug] if s]
         except ValueError:

@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Literal
 
 from scraper.lib.errors import InvalidNaceError
 from scraper.lib.nace import parse_nace_input
+from scraper.lib.sector_nace import SECTOR_NACE_PREFIXES
 from scraper.pipeline.batch import BatchConfig
-from scraper.pipeline.orchestrator import _SECTOR_NACE_PREFIXES
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -30,14 +30,14 @@ def resolve_sectors(
     the search on their own.
     """
     if all_sectors:
-        return list(_SECTOR_NACE_PREFIXES.keys())
+        return list(SECTOR_NACE_PREFIXES.keys())
     if not sectors:
         if allow_empty:
             return []
         raise ValueError("Select at least one sector, enable 'all sectors', or enter NACE code(s).")
-    unknown = [s for s in sectors if s not in _SECTOR_NACE_PREFIXES]
+    unknown = [s for s in sectors if s not in SECTOR_NACE_PREFIXES]
     if unknown:
-        valid = ", ".join(sorted(_SECTOR_NACE_PREFIXES))
+        valid = ", ".join(sorted(SECTOR_NACE_PREFIXES))
         raise ValueError(f"Unknown sector slug(s): {unknown}. Valid slugs: {valid}")
     return list(sectors)
 

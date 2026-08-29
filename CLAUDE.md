@@ -109,7 +109,7 @@ Call `refresh_prospect_scores(pool)` after `refresh_companies_current()`. Never 
 - Adding `update` or `delete` methods to `ObservationsRepo`. The repo is intentionally append-only.
 - Concurrent goudengids requests. The host's WAF penalises bursts harder than sustained low rate. Always concurrency 1.
 - Treating search-engine observations as authority. They are evidence signals (confidence 0.50–0.55), never canonical. Never resolve conflicts by trusting a search hit over KBO/NBB/goudengids.
-- NACE codes with dots — KBO Open Data uses dotless codes (`43211`, not `43.21`). `_SECTOR_NACE_PREFIXES` in `orchestrator.py` must match this format.
+- NACE codes with dots — KBO Open Data uses dotless codes (`43211`, not `43.21`). `SECTOR_NACE_PREFIXES` in `lib/sector_nace.py` must match this format.
 - Calling `httpx.AsyncClient` directly from a goudengids fetcher — goudengids uses Playwright/Chromium (see `sources/goudengids/fetcher.py`). The old httpx warmup approach is archived in `sources/goudengids/archive/`.
 
 ## Per-source knowledge

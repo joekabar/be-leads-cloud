@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — final-review fix wave for the operational-hardening branch
+
+- `nightly_scrape.ps1`: an END fallback now fires whenever the state log ends on
+  START and Python never wrote a line of its own (uv sync/lock failure, missing
+  console script, import error before the try-block) — length-based, so the
+  legitimate `DONE ... fully covered` no-END path is untouched.
+- `test_every_nace_sector_is_scrapeable_or_declared_unscrapeable` was tautological:
+  the "unscrapeable" set was defined as "absent from sectors.toml or flagged," so a
+  missing entry could never fail the test. Added the 12 orphaned
+  `SECTOR_NACE_PREFIXES` sectors to `sectors.toml` (flagged
+  `goudengids_sector_not_indexed`) and tightened the test to require every sector
+  key to have a sectors.toml entry at all.
+- `nightly.py::cli_main` now derives DSN via the non-raising `database_url()` so
+  `--database-url` gets a real chance before giving up, and raises `ConfigError`
+  itself (inside the existing trap) when both are empty.
+- `nightly.py::run_nightly` runs its two preflight checks sequentially — a staging
+  failure now short-circuits before `check_migrations` is even called.
+- Added `--run-log` to `be-leads-nightly` so the PowerShell wrapper is the single
+  source of truth for the run log path instead of both sides independently
+  deriving the same filename.
+- `ui/data.py` and `ui/run_config.py` finished the `SECTOR_NACE_PREFIXES` import
+  migration to `lib/sector_nace.py` (the `orchestrator.py` alias stays for callers
+  still using it).
+- `daily_export.ps1` now runs `be-leads-health` after the export loop and logs its
+  output, without letting a health failure affect the export script's own exit code.
+
 ### Added — the pipeline now notices when it is failing
 
 - New `be-leads-health` CLI (`pipeline/health.py`) runs six checks and answers one
