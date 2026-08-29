@@ -21,6 +21,7 @@
       3  database unavailable
       4  sectors failed outright, e.g. DNS or the browser never reached the site
       5  scraped fine, but a source failed, e.g. the Brave API returning HTTP 402
+      6  data preflight failed (health check inside be-leads-nightly)
 
 .EXAMPLE
     .\nightly_scrape.ps1 -City oostende -Limit 15
@@ -58,53 +59,6 @@ $log = $preflightLog
 
 function Write-State([string] $msg) {
     "[$(Get-Date -Format s)] $msg" | Add-Content -Path $state -Encoding utf8
-}
-
-# Run a `uv` command, capture its stdout, and survive whatever it writes to stderr.
-#
-# Two separate hazards, both of which cost real nights:
-#
-# 1. Windows PowerShell 5.1 wraps every stderr line from a native exe in a
-#    NativeCommandError record. Under $ErrorActionPreference = 'Stop' that record is
-#    TERMINATING, so the script dies mid-statement -- before the `if ($LASTEXITCODE...)`
-#    below it can log anything. uv writes ordinary progress to stderr ("Uninstalled 1
-#    package in 0.3ms"), so this fired on perfectly healthy runs. Between 2026-08-12 and
-#    2026-08-17 every scheduled run logged START, nothing else, and exited 1: ten dead
-#    nights, no error, five days of stale data.
-# 2. Capturing with `2>&1` merges those stderr lines into the returned value. Even with
-#    the crash fixed, the caller would then treat "Uninstalled 1 package" as a city name.
-#
-# So: drop to 'Continue' for the duration of the call, send stderr to a log instead of
-# into the value, and hand back the real exit code.
-function Invoke-Uv {
-    param(
-        [Parameter(Mandatory)] [string[]] $Arguments,
-        [Parameter(Mandatory)] [string]   $ErrLog
-    )
-    $prev = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        $all  = & uv @Arguments 2>&1
-        $code = $LASTEXITCODE
-    } finally {
-        $ErrorActionPreference = $prev
-    }
-
-    # 2>&1 merges the streams, but the objects stay distinguishable: stderr arrives as an
-    # ErrorRecord, stdout as a plain string. Splitting on type keeps "Uninstalled 1 package"
-    # out of the returned value while still preserving it for diagnosis. Note the stderr is
-    # written with Add-Content -Encoding utf8 rather than a bare `2>>` redirection, which in
-    # PowerShell 5.1 emits UTF-16 and would corrupt a log the rest of this script wrote UTF-8.
-    $err = @($all | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
-    if ($err.Count) {
-        $err | ForEach-Object { "[$(Get-Date -Format s)] stderr: $_" } |
-            Add-Content -Path $ErrLog -Encoding utf8
-    }
-
-    return [PSCustomObject]@{
-        ExitCode = $code
-        Output   = @($all | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
-    }
 }
 
 Write-State "START city=$(if ($City) { $City } else { '<rotation>' }) limit=$Limit"
@@ -219,137 +173,22 @@ if ($CheckOnly) {
     exit 0
 }
 
-# Which city is the rotation on? Finishes one city before starting the next; prints
-# nothing once every configured city is complete.
-if (-not $City) {
-    $nextCity = Invoke-Uv -Arguments @('run', 'be-leads-next-city') -ErrLog $log
-    if ($nextCity.ExitCode -ne 0) {
-        Write-State "FAILED next-city exit=$($nextCity.ExitCode) see=$log"
-        exit $nextCity.ExitCode
-    }
-    $City = @($nextCity.Output | Where-Object { $_ -and ("$_".Trim() -ne '') } |
-        ForEach-Object { "$_".Trim() }) | Select-Object -First 1
+# Everything from here down - city selection, sector queue, batch, verdict - lives in
+# Python now (src/scraper/pipeline/nightly.py), where pytest reaches it. This script
+# is OS glue: scheduling, Docker preflight, and relaying an exit code. The Python side
+# appends to the same state log in the same format, so the history stays greppable.
+$runLog = Join-Path $LogDir "nightly_run_${stamp}.log"
 
-    if (-not $City) {
-        Write-State 'END exit=0 reason=all-cities-complete'
-        Write-Output 'Nothing to scrape: every configured city is complete.'
-        exit 0
-    }
-    Write-State "CITY $City (from rotation)"
-}
+$argList = @('run', 'be-leads-nightly', '--limit', $Limit, '--state-log', $state)
+if ($City) { $argList += @('--city', $City) }
 
-# Now the city is known, so the run log can be named after it.
-$log = Join-Path $LogDir "nightly_scrape_${City}_${stamp}.log"
-
-# Which sectors still need work?
-$nextSectors = Invoke-Uv -Arguments @('run', 'be-leads-next-sectors', '--city', $City, '--limit', $Limit) -ErrLog $log
-if ($nextSectors.ExitCode -ne 0) {
-    Write-State "FAILED next-sectors exit=$($nextSectors.ExitCode) see=$log"
-    exit $nextSectors.ExitCode
-}
-
-$sectors = @($nextSectors.Output | Where-Object { $_ -and ("$_".Trim() -ne '') } | ForEach-Object { "$_".Trim() })
-
-if ($sectors.Count -eq 0) {
-    Write-State "DONE city=$City is fully covered, nothing to scrape tonight"
-    Write-Output "Nothing to scrape: $City is fully covered."
-    exit 0
-}
-
-$joined = $sectors -join ', '
-Write-State "SCRAPE $($sectors.Count) sectors: $joined"
-
-$summaryFile = Join-Path $LogDir "batch_summary_${City}_${stamp}.json"
-
-$argList = @('run', 'be-leads-pipeline-batch', '--city', $City)
-foreach ($s in $sectors) { $argList += @('--sector', $s) }
-
-# Staging is already loaded, so spend the night on discovery rather than re-emitting KBO.
-$argList += @('--skip-kbo-dump')
-
-# The batch already knows exactly how the night went. Have it say so in a file rather
-# than making this script infer it from the log -- see the summary handling below.
-$argList += @('--summary-json', $summaryFile)
-
-# Windows PowerShell 5.1 wraps every stderr line from a native exe in a NativeCommandError
-# record. Under $ErrorActionPreference = 'Stop' that record is terminating, so the script
-# died here and never reached the summary below: the 2026-07-30 run logged START and SCRAPE,
-# no END, and exited 1 after a batch that had in fact completed cleanly. structlog writes
-# all logging to stderr, so this fired on every run, not on failures only. Drop to
-# 'Continue' for the duration of the call and read the real exit code afterwards.
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
-    & uv @argList *>> $log
+    & uv @argList *>> $runLog
     $code = $LASTEXITCODE
 } finally {
     $ErrorActionPreference = $prevEap
-}
-
-# How the night actually went.
-#
-# This used to be decided by grepping the log for 'goudengids_sector_done', which counts
-# sectors ATTEMPTED, not sectors that produced anything. On 2026-08-22 and 2026-08-23 a
-# DNS failure (ERR_NAME_NOT_RESOLVED) made all ten sectors fail in each of four
-# consecutive runs, and every one of them logged 'END exit=0 sectors_done=0 blocks=0' --
-# indistinguishable from 'nothing left to scrape'. Two days, zero observations, no alarm.
-# The same grep reported sectors_done=10 for a run the batch itself scored as 6.
-#
-# So read the batch's own summary. Fall back to the old grep only if the file is missing,
-# which means the batch died before writing it -- itself worth reporting.
-$blocked = @(Select-String -Path $log -Pattern 'goudengids_imperva_block' -ErrorAction SilentlyContinue).Count
-$sectorFailures = @(Select-String -Path $log -Pattern 'goudengids_sector_failed' -ErrorAction SilentlyContinue).Count
-
-$scraped   = $null
-$attempted = $sectors.Count
-$failedSources = @()
-
-if (Test-Path $summaryFile) {
-    try {
-        $summary = Get-Content -Path $summaryFile -Raw -Encoding UTF8 | ConvertFrom-Json
-        $scraped   = [int] $summary.goudengids_sectors_scraped
-        $attempted = [int] $summary.sectors
-        if ($summary.sources_failed) {
-            $failedSources = @($summary.sources_failed.PSObject.Properties |
-                ForEach-Object { "$($_.Name)=$($_.Value)" })
-        }
-    } catch {
-        Write-State "NOTE could not read $summaryFile :: $($_.Exception.Message)"
-    }
-} else {
-    Write-State "NOTE batch wrote no summary file, falling back to log counting"
-}
-
-if ($null -eq $scraped) {
-    $scraped = @(Select-String -Path $log -Pattern 'goudengids_sector_done' -ErrorAction SilentlyContinue).Count
-}
-
-# A sector that finished but inserted nothing is normal -- everything it found was
-# already seen inside the dedup window. A sector that FAILED is not. Blocks are counted
-# and reported separately; they leave the sector queued and are expected on this host.
-$reason = ''
-if ($code -ne 0) {
-    $reason = 'batch-exit'
-} elseif ($sectorFailures -gt 0) {
-    $code = 4
-    $firstError = (Select-String -Path $log -Pattern 'goudengids_sector_failed' -ErrorAction SilentlyContinue |
-        Select-Object -First 1).Line
-    if ($firstError -match "error='([^']{0,160})") { $reason = "sector-failures :: $($Matches[1])" }
-    else { $reason = 'sector-failures' }
-} elseif ($failedSources.Count -gt 0) {
-    $code = 5
-    $reason = "source-failed :: $($failedSources -join ', ')"
-}
-
-$suffix = if ($reason) { " reason=$reason" } else { '' }
-Write-State "END exit=$code scraped=$scraped/$attempted failed=$sectorFailures blocks=$blocked log=$log$suffix"
-Write-Output "Scraped $scraped of $attempted sectors, $sectorFailures failed, $blocked blocked. Log: $log"
-
-if ($blocked -gt 0) {
-    Write-State "NOTE $blocked sectors were blocked and remain queued for the next night"
-}
-foreach ($f in $failedSources) {
-    Write-State "NOTE source failed: $f"
 }
 
 exit $code
