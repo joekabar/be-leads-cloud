@@ -1420,15 +1420,19 @@ class TestSectorErrorsReachTheReport:
 
         from scraper.pipeline.batch import _run_goudengids_sector
 
-        obs, err = await _run_goudengids_sector(
-            "hotels",
-            "brugge",
-            "nl",
-            25,
-            _fake_pool(),
-            _fake_polite_client(),
-            structlog.get_logger(),
-        )
+        # Patched the same way the sibling TestRunGoudengidsSector tests patch it, so
+        # a future eager constructor (one that launches Chromium before the ingest
+        # call raises) can't slip a real browser launch into the unit suite.
+        with patch("scraper.sources.goudengids.fetcher.BrowserListingFetcher"):
+            obs, err = await _run_goudengids_sector(
+                "hotels",
+                "brugge",
+                "nl",
+                25,
+                _fake_pool(),
+                _fake_polite_client(),
+                structlog.get_logger(),
+            )
         assert obs == 0
         assert err is not None and "ERR_NAME_NOT_RESOLVED" in err
 

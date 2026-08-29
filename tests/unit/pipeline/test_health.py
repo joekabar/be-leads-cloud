@@ -25,6 +25,7 @@ from scraper.pipeline.health import (
     check_source_freshness,
     check_staging,
     render,
+    run_health,
 )
 
 
@@ -126,3 +127,30 @@ class TestRender:
         assert code == 1
         lines = text.splitlines()
         assert lines[0] == "FAIL scrape: dead 50h"
+
+
+class TestRunHealth:
+    """Locks the roster of checks run_health assembles, not their pass/fail verdicts:
+    a future check silently dropped (or a duplicate silently added) from this list
+    would not be caught by any single check_* test, since each of those exercises
+    its function in isolation."""
+
+    async def test_returns_exactly_the_six_named_checks(self, tmp_path: Path) -> None:
+        migrations_dir = tmp_path / "migrations"
+        migrations_dir.mkdir()
+        export_dir = tmp_path / "exports"
+        export_dir.mkdir()
+
+        pool = _pool(fetchrow=None, fetch=[])
+
+        checks = await run_health(pool, migrations_dir=migrations_dir, export_dir=export_dir)
+
+        assert len(checks) == 6
+        assert {c.name for c in checks} == {
+            "staging",
+            "migrations",
+            "scrape",
+            "source:brave",
+            "exports",
+            "dead-slugs",
+        }

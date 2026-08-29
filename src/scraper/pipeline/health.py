@@ -46,6 +46,9 @@ async def check_staging(pool: Any) -> HealthCheck:
 
 
 async def check_migrations(pool: Any, migrations_dir: Path) -> HealthCheck:
+    # Blocking iterdir() in an async function (ASYNC240): migrations_dir holds ~10
+    # .sql files, so this is a handful of stat-free directory-entry reads - too small
+    # to justify a thread-pool hop, and it runs once per health check, not per request.
     available = max(
         (int(m.group(1)) for f in migrations_dir.iterdir() if (m := _MIGRATION_RE.match(f.name))),  # noqa: ASYNC240
         default=0,
@@ -194,7 +197,7 @@ def cli_main() -> None:  # pragma: no cover
 
     try:
         checks = asyncio.run(_run())
-    except (OSError, asyncpg.PostgresError) as exc:
+    except (OSError, asyncpg.PostgresError, TimeoutError) as exc:
         print(f"cannot reach the database: {exc}", file=sys.stderr)
         sys.exit(2)
 
