@@ -143,11 +143,7 @@ def cli_main() -> None:  # pragma: no cover
     import asyncpg
     import httpx
 
-    from scraper.lib.config import load_settings, project_root
-    from scraper.lib.data_paths import PER_HOST_TOML
-    from scraper.lib.http.client import PoliteClient
-    from scraper.lib.http.limiter import load_from_toml
-    from scraper.pipeline.batch_cli import _resolve_api_keys
+    from scraper.lib.config import project_root
 
     parser = argparse.ArgumentParser(
         description="One scheduled nightly scrape: city, sectors, batch, verdict."
@@ -159,63 +155,79 @@ def cli_main() -> None:  # pragma: no cover
     parser.add_argument("--database-url", default=None)
     args = parser.parse_args()
 
-    settings = load_settings()  # loads .env; key reads MUST come after (see batch_cli)
-    dsn = args.database_url or settings.database_url
-    brave_key, nbb_key = _resolve_api_keys(None, None)
-
-    log_dir = project_root() / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    state_log = Path(args.state_log) if args.state_log else log_dir / "nightly_scrape.log"
-    stamp = datetime.now(UTC).astimezone().strftime("%Y-%m-%d-%H%M")
-
-    from scraper.db.migrations import runner as _runner
-
-    migrations_dir = Path(_runner.__file__).parent
-
-    async def _run() -> int:
-        async def _init_jsonb(conn: asyncpg.Connection) -> None:
-            await conn.set_type_codec(
-                "jsonb", encoder=_json.dumps, decoder=_json.loads, schema="pg_catalog"
-            )
-
-        pool = await asyncpg.create_pool(dsn, min_size=2, max_size=10, init=_init_jsonb)
-        if pool is None:
-            raise RuntimeError("asyncpg.create_pool returned None")
-        try:
-            city = args.city.strip().lower()
-            if not city:
-                cities = load_rotation_cities()
-                selected = await select_city(pool, cities, within_hours=args.within_hours)
-                if selected is None:
-                    write_state(state_log, "END exit=0 reason=all-cities-complete")
-                    print("Nothing to scrape: every configured city is complete.")
-                    return EXIT_OK
-                city = selected
-                write_state(state_log, f"CITY {city} (from rotation)")
-
-            limiter = load_from_toml(PER_HOST_TOML)
-            async with httpx.AsyncClient(follow_redirects=True) as http_client:
-                polite_client = PoliteClient(inner=http_client, limiter=limiter)
-                return await run_nightly(
-                    pool,
-                    polite_client,
-                    city=city,
-                    limit=args.limit,
-                    within_hours=args.within_hours,
-                    state_log=state_log,
-                    log_path=str(log_dir / f"nightly_run_{stamp}.log"),
-                    brave_key=brave_key,
-                    nbb_key=nbb_key,
-                    dsn=dsn,
-                    migrations_dir=migrations_dir,
-                )
-        finally:
-            await pool.close()
+    # Best-effort state-log path, computed before anything that can raise. A setup
+    # failure (missing DATABASE_URL, a broken migrations import, ...) must still land
+    # one line here instead of a raw traceback and a silent, unlogged exit - the exact
+    # failure mode this CLI exists to replace.
+    state_log = (
+        Path(args.state_log) if args.state_log else project_root() / "logs" / "nightly_scrape.log"
+    )
 
     try:
+        from scraper.lib.config import load_settings
+        from scraper.lib.data_paths import PER_HOST_TOML
+        from scraper.lib.http.client import PoliteClient
+        from scraper.lib.http.limiter import load_from_toml
+        from scraper.pipeline.batch_cli import _resolve_api_keys
+
+        settings = load_settings()  # loads .env; key reads MUST come after (see batch_cli)
+        dsn = args.database_url or settings.database_url
+        brave_key, nbb_key = _resolve_api_keys(None, None)
+
+        log_dir = state_log.parent
+        log_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(UTC).astimezone().strftime("%Y-%m-%d-%H%M")
+
+        from scraper.db.migrations import runner as _runner
+
+        migrations_dir = Path(_runner.__file__).parent
+
+        async def _run() -> int:
+            async def _init_jsonb(conn: asyncpg.Connection) -> None:
+                await conn.set_type_codec(
+                    "jsonb", encoder=_json.dumps, decoder=_json.loads, schema="pg_catalog"
+                )
+
+            pool = await asyncpg.create_pool(dsn, min_size=2, max_size=10, init=_init_jsonb)
+            if pool is None:
+                raise RuntimeError("asyncpg.create_pool returned None")
+            try:
+                city = args.city.strip().lower()
+                if not city:
+                    cities = load_rotation_cities()
+                    selected = await select_city(pool, cities, within_hours=args.within_hours)
+                    if selected is None:
+                        write_state(state_log, "END exit=0 reason=all-cities-complete")
+                        print("Nothing to scrape: every configured city is complete.")
+                        return EXIT_OK
+                    city = selected
+                    write_state(state_log, f"CITY {city} (from rotation)")
+
+                limiter = load_from_toml(PER_HOST_TOML)
+                async with httpx.AsyncClient(follow_redirects=True) as http_client:
+                    polite_client = PoliteClient(inner=http_client, limiter=limiter)
+                    return await run_nightly(
+                        pool,
+                        polite_client,
+                        city=city,
+                        limit=args.limit,
+                        within_hours=args.within_hours,
+                        state_log=state_log,
+                        log_path=str(log_dir / f"nightly_run_{stamp}.log"),
+                        brave_key=brave_key,
+                        nbb_key=nbb_key,
+                        dsn=dsn,
+                        migrations_dir=migrations_dir,
+                    )
+            finally:
+                await pool.close()
+
         code = asyncio.run(_run())
     except Exception as exc:
-        write_state(state_log, f"END exit=1 reason=unhandled :: {exc}")
+        import contextlib
+
+        with contextlib.suppress(OSError):
+            write_state(state_log, f"END exit=1 reason=unhandled :: {exc}")
         print(f"Nightly error: {exc}", file=sys.stderr)
         sys.exit(1)
     sys.exit(code)

@@ -209,3 +209,34 @@ class TestRunNightly:
         text = state.read_text(encoding="utf-8")
         assert "SCRAPE 1 sectors" in text
         assert "reason=sector-failures :: RuntimeError: ERR_NAME_NOT_RESOLVED" in text
+
+
+class TestCliMainUnhandledTrap:
+    def test_setup_failure_before_asyncio_run_still_logs_and_exits_1(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A missing DATABASE_URL used to crash cli_main with a raw traceback before
+        execution ever reached the try/except around asyncio.run: no state-log line,
+        no exit-code contract, just a bare stack trace. After Task 7 this CLI is the
+        only nightly entry point, so a setup failure (load_settings et al.) must land
+        the same END exit=1 line a mid-run failure does."""
+        import sys
+
+        from scraper.lib.errors import ConfigError
+
+        def _raise_config_error(*_a: object, **_k: object) -> None:
+            raise ConfigError("DATABASE_URL is not set.")
+
+        # cli_main imports load_settings from scraper.lib.config *inside* the function
+        # body, so the patch target is the source module, not scraper.pipeline.nightly.
+        monkeypatch.setattr("scraper.lib.config.load_settings", _raise_config_error)
+
+        state = tmp_path / "state.log"
+        monkeypatch.setattr(sys, "argv", ["be-leads-nightly", "--state-log", str(state)])
+
+        from scraper.pipeline.nightly import cli_main
+
+        with pytest.raises(SystemExit) as exc_info:
+            cli_main()
+        assert exc_info.value.code == 1
+        assert "END exit=1 reason=unhandled" in state.read_text(encoding="utf-8")
