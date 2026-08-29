@@ -13,7 +13,7 @@ import tomllib
 from scraper.lib.data_paths import SECTORS_TOML
 from scraper.lib.sector_nace import SECTOR_NACE_PREFIXES
 from scraper.pipeline.city_map import get_postal_codes
-from scraper.pipeline.sector_queue import goudengids_unscrapeable_sectors, load_rotation_cities
+from scraper.pipeline.sector_queue import load_rotation_cities
 
 # nl_slugs deliberately shared by more than one sector entry. One goudengids listing
 # legitimately feeds several internal sector buckets; see
@@ -44,11 +44,19 @@ class TestSectorConfig:
     def test_every_nace_sector_is_scrapeable_or_declared_unscrapeable(self) -> None:
         """A sector in the NACE map but absent from sectors.toml can be selected by
         the queue yet never resolves to a goudengids slug - it burns a queue slot
-        every night without a single request succeeding."""
+        every night without a single request succeeding.
+
+        Absence from sectors.toml is NOT a legal way to be unscrapeable: every
+        SECTOR_NACE_PREFIXES key must have a sectors.toml entry, scrapeable or
+        flagged goudengids_sector_not_indexed. Checking `s not in unscrapeable` here
+        used to be tautological -- goudengids_unscrapeable_sectors() already treats
+        "absent from sectors.toml" as one of its two ways of being unscrapeable, so
+        every orphan this test could find was, by construction, exempted from failing
+        it. The fix belongs in sectors.toml (declare the flag), not in this test.
+        """
         toml_keys = set(_sectors_toml())
-        unscrapeable = goudengids_unscrapeable_sectors(sorted(SECTOR_NACE_PREFIXES))
-        orphans = [s for s in SECTOR_NACE_PREFIXES if s not in toml_keys and s not in unscrapeable]
-        assert orphans == [], f"sectors with NACE codes but no goudengids mapping: {orphans}"
+        orphans = sorted(s for s in SECTOR_NACE_PREFIXES if s not in toml_keys)
+        assert orphans == [], f"sectors with NACE codes but no sectors.toml entry at all: {orphans}"
 
     def test_sectors_toml_slugs_are_unique_and_wellformed(self) -> None:
         """nl_slug rules apply only to sectors goudengids actually indexes.

@@ -570,3 +570,99 @@ fr_slug = ""
 display = "Havenactiviteiten"
 emoji = "⚓"
 goudengids_sector_not_indexed = true
+
+# ── Config-reality orphans (added 2026-08-24) ──────────────────────────────
+# These 12 keys exist in SECTOR_NACE_PREFIXES (lib/sector_nace.py) but had no entry
+# here, so they were selectable by the nightly queue and would burn a slot every
+# night without a single request succeeding — see
+# tests/unit/pipeline/test_config_reality.py::test_every_nace_sector_is_scrapeable_or_declared_unscrapeable.
+
+# goudengids DOES index garage companies, and "autogarages" above already covers
+# that listing (nl_slug = "autogarages"). This entry is flagged rather than pointed
+# at the same slug because adding a second sector onto an already-covered listing
+# spends WAF budget for no new coverage; whether garagisten should instead be
+# merged into autogarages or given its own distinct query is an operator decision,
+# not made here.
+[garagisten]
+nl_slug = ""
+fr_slug = ""
+display = "Garagisten"
+emoji = "🚙"
+goudengids_sector_not_indexed = true
+
+[stoomlevering]
+nl_slug = ""
+fr_slug = ""
+display = "Stoomlevering"
+emoji = "💨"
+goudengids_sector_not_indexed = true
+
+[afvalverwerkingsindustrie]
+nl_slug = ""
+fr_slug = ""
+display = "Afvalverwerkingsindustrie"
+emoji = "🗑️"
+goudengids_sector_not_indexed = true
+
+[rubberindustrie]
+nl_slug = ""
+fr_slug = ""
+display = "Rubberindustrie"
+emoji = "🛞"
+goudengids_sector_not_indexed = true
+
+[diervoederfabricage]
+nl_slug = ""
+fr_slug = ""
+display = "Diervoederfabricage"
+emoji = "🌾"
+goudengids_sector_not_indexed = true
+
+[textielfabricage]
+nl_slug = ""
+fr_slug = ""
+display = "Textielfabricage"
+emoji = "🧵"
+goudengids_sector_not_indexed = true
+
+[ingenieurs-adviesbureaus]
+nl_slug = ""
+fr_slug = ""
+display = "Ingenieurs-adviesbureaus"
+emoji = "📏"
+goudengids_sector_not_indexed = true
+
+[grote-bedrijfsgebouwen]
+nl_slug = ""
+fr_slug = ""
+display = "Grote bedrijfsgebouwen"
+emoji = "🏢"
+goudengids_sector_not_indexed = true
+
+[steengroeven]
+nl_slug = ""
+fr_slug = ""
+display = "Steengroeven"
+emoji = "⛰️"
+goudengids_sector_not_indexed = true
+
+[tuinbouwbedrijven-industrieel]
+nl_slug = ""
+fr_slug = ""
+display = "Tuinbouwbedrijven (industrieel)"
+emoji = "🍅"
+goudengids_sector_not_indexed = true
+
+[intensieve-veehouderij]
+nl_slug = ""
+fr_slug = ""
+display = "Intensieve veehouderij"
+emoji = "🐄"
+goudengids_sector_not_indexed = true
+
+[snellaadstations]
+nl_slug = ""
+fr_slug = ""
+display = "Snellaadstations"
+emoji = "🔌"
+goudengids_sector_not_indexed = true
