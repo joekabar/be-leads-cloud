@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from scraper.pipeline.batch import BatchReport
-from scraper.pipeline.nightly import judge_batch, run_nightly, write_state
+from scraper.pipeline.nightly import judge_batch, run_nightly, select_city, write_state
 
 
 def _report(**kw: object) -> BatchReport:
@@ -218,18 +218,17 @@ class TestCliMainUnhandledTrap:
         """A missing DATABASE_URL used to crash cli_main with a raw traceback before
         execution ever reached the try/except around asyncio.run: no state-log line,
         no exit-code contract, just a bare stack trace. After Task 7 this CLI is the
-        only nightly entry point, so a setup failure (load_settings et al.) must land
-        the same END exit=1 line a mid-run failure does."""
+        only nightly entry point, so a setup failure (missing DSN et al.) must land
+        the same END exit=1 line a mid-run failure does.
+
+        cli_main now calls the non-raising ``database_url()`` (so ``--database-url``
+        gets a real chance to be consulted first) and raises ConfigError itself when
+        both are empty - reproduce that by making database_url() report unset."""
         import sys
 
-        from scraper.lib.errors import ConfigError
-
-        def _raise_config_error(*_a: object, **_k: object) -> None:
-            raise ConfigError("DATABASE_URL is not set.")
-
-        # cli_main imports load_settings from scraper.lib.config *inside* the function
+        # cli_main imports database_url from scraper.lib.config *inside* the function
         # body, so the patch target is the source module, not scraper.pipeline.nightly.
-        monkeypatch.setattr("scraper.lib.config.load_settings", _raise_config_error)
+        monkeypatch.setattr("scraper.lib.config.database_url", lambda: "")
 
         state = tmp_path / "state.log"
         monkeypatch.setattr(sys, "argv", ["be-leads-nightly", "--state-log", str(state)])
@@ -240,3 +239,36 @@ class TestCliMainUnhandledTrap:
             cli_main()
         assert exc_info.value.code == 1
         assert "END exit=1 reason=unhandled" in state.read_text(encoding="utf-8")
+
+
+class TestSelectCity:
+    """select_city() walks the rotation and returns the first city with pending
+    scrapeable work, so the nightly does not keep hammering a finished city."""
+
+    async def test_first_city_with_pending_work_is_returned(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import scraper.pipeline.nightly as mod
+        from scraper.lib.sector_nace import SECTOR_NACE_PREFIXES
+
+        async def _completed(pool: object, cities: list[str], **k: object) -> dict[str, set[str]]:
+            return {"oostende": set(SECTOR_NACE_PREFIXES)}
+
+        monkeypatch.setattr(mod, "fetch_completed_by_city", _completed)
+
+        result = await select_city(_mk_pool(), ["oostende", "brugge"], within_hours=None)
+        assert result == "brugge"
+
+    async def test_returns_none_when_every_city_is_complete(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import scraper.pipeline.nightly as mod
+        from scraper.lib.sector_nace import SECTOR_NACE_PREFIXES
+
+        async def _completed(pool: object, cities: list[str], **k: object) -> dict[str, set[str]]:
+            return {c: set(SECTOR_NACE_PREFIXES) for c in cities}
+
+        monkeypatch.setattr(mod, "fetch_completed_by_city", _completed)
+
+        result = await select_city(_mk_pool(), ["oostende", "brugge"], within_hours=None)
+        assert result is None

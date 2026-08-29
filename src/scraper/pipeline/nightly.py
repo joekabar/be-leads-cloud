@@ -97,10 +97,23 @@ async def run_nightly(
 ) -> int:
     # Data preflight: Aug 18-20 every run spent WAF budget only to fail on wiped
     # staging one second in. Refuse to start the browser against a dead foundation.
-    for check in (await check_staging(pool), await check_migrations(pool, migrations_dir)):
-        if not check.ok:
-            write_state(state_log, f"END exit={EXIT_PREFLIGHT} reason=preflight :: {check.detail}")
-            return EXIT_PREFLIGHT
+    # Sequential and short-circuiting: check_migrations must not run (and cannot
+    # raise) when staging has already failed - two explicit checks, not a tuple
+    # comprehension, so the second call is never even constructed on a staging
+    # failure.
+    staging_check = await check_staging(pool)
+    if not staging_check.ok:
+        write_state(
+            state_log, f"END exit={EXIT_PREFLIGHT} reason=preflight :: {staging_check.detail}"
+        )
+        return EXIT_PREFLIGHT
+
+    migrations_check = await check_migrations(pool, migrations_dir)
+    if not migrations_check.ok:
+        write_state(
+            state_log, f"END exit={EXIT_PREFLIGHT} reason=preflight :: {migrations_check.detail}"
+        )
+        return EXIT_PREFLIGHT
 
     all_sectors = sorted(SECTOR_NACE_PREFIXES)
     done = await fetch_completed_sectors(pool, city, within_hours=within_hours)
@@ -153,6 +166,11 @@ def cli_main() -> None:  # pragma: no cover
     parser.add_argument("--within-hours", type=int, default=None)
     parser.add_argument("--state-log", default=None, help="default: <repo>/logs/nightly_scrape.log")
     parser.add_argument("--database-url", default=None)
+    parser.add_argument(
+        "--run-log",
+        default=None,
+        help="Path for this run's log; default: <repo>/logs/nightly_run_<stamp>.log",
+    )
     args = parser.parse_args()
 
     # Best-effort state-log path, computed before anything that can raise. A setup
@@ -164,19 +182,27 @@ def cli_main() -> None:  # pragma: no cover
     )
 
     try:
-        from scraper.lib.config import load_settings
+        from scraper.lib.config import database_url
         from scraper.lib.data_paths import PER_HOST_TOML
+        from scraper.lib.errors import ConfigError
         from scraper.lib.http.client import PoliteClient
         from scraper.lib.http.limiter import load_from_toml
         from scraper.pipeline.batch_cli import _resolve_api_keys
 
-        settings = load_settings()  # loads .env; key reads MUST come after (see batch_cli)
-        dsn = args.database_url or settings.database_url
+        # database_url() loads .env (same as load_settings) but does not raise, so
+        # args.database_url gets a real chance to be consulted before we give up.
+        # Key reads MUST come after (see batch_cli).
+        dsn = args.database_url or database_url()
+        if not dsn:
+            raise ConfigError(
+                "DATABASE_URL is not set. Export it, add it to .env, or pass --database-url."
+            )
         brave_key, nbb_key = _resolve_api_keys(None, None)
 
         log_dir = state_log.parent
         log_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(UTC).astimezone().strftime("%Y-%m-%d-%H%M")
+        run_log_path = args.run_log if args.run_log else str(log_dir / f"nightly_run_{stamp}.log")
 
         from scraper.db.migrations import runner as _runner
 
@@ -213,7 +239,7 @@ def cli_main() -> None:  # pragma: no cover
                         limit=args.limit,
                         within_hours=args.within_hours,
                         state_log=state_log,
-                        log_path=str(log_dir / f"nightly_run_{stamp}.log"),
+                        log_path=run_log_path,
                         brave_key=brave_key,
                         nbb_key=nbb_key,
                         dsn=dsn,

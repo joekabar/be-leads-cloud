@@ -22,6 +22,10 @@
       4  sectors failed outright, e.g. DNS or the browser never reached the site
       5  scraped fine, but a source failed, e.g. the Brave API returning HTTP 402
       6  data preflight failed (health check inside be-leads-nightly)
+      2  usage error (argparse) passed through from be-leads-nightly
+
+    Per-sector Imperva block counts are no longer on the state line -- they live in
+    the run log as goudengids_imperva_block events (see --run-log below).
 
 .EXAMPLE
     .\nightly_scrape.ps1 -City oostende -Limit 15
@@ -179,8 +183,10 @@ if ($CheckOnly) {
 # appends to the same state log in the same format, so the history stays greppable.
 $runLog = Join-Path $LogDir "nightly_run_${stamp}.log"
 
-$argList = @('run', 'be-leads-nightly', '--limit', $Limit, '--state-log', $state)
+$argList = @('run', 'be-leads-nightly', '--limit', $Limit, '--state-log', $state, '--run-log', $runLog)
 if ($City) { $argList += @('--city', $City) }
+
+$before = if (Test-Path $state) { (Get-Item $state).Length } else { 0 }
 
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
@@ -189,6 +195,14 @@ try {
     $code = $LASTEXITCODE
 } finally {
     $ErrorActionPreference = $prevEap
+}
+
+# If Python never got as far as its own try-block (uv sync/lock failure, missing
+# console script, import error), the state log still ends on START. Length-based,
+# not string-matching, so the legitimate DONE ... fully covered no-END path is left
+# alone whenever Python DID write something.
+if (-not (Test-Path $state) -or (Get-Item $state).Length -eq $before) {
+    Write-State "END exit=$code reason=nightly-wrote-nothing log=$runLog"
 }
 
 exit $code

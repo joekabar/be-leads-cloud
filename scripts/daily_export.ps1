@@ -150,6 +150,15 @@ foreach ($c in $City) {
 
 Write-Log "END exit=$(if ($failed) { 1 } else { 0 }) cities=$($City.Count) failed=$failed rows=$total"
 
+# Surface health twice daily by piggybacking on this scheduled run. Log-only: a health
+# failure must not turn a successful export into a failed script, so its exit code is
+# captured but never propagated.
+$health = Invoke-Uv -Arguments @('run', 'be-leads-health')
+Write-Log "HEALTH exit=$($health.ExitCode)"
+foreach ($line in $health.Output) {
+    Write-Log "HEALTH: $line"
+}
+
 # Prune old exports so the folder does not grow without bound.
 if ($KeepDays -gt 0) {
     $cutoff = (Get-Date).AddDays(-$KeepDays)
