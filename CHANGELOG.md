@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the pipeline now notices when it is failing
+
+- New `be-leads-health` CLI (`pipeline/health.py`) runs six checks and answers one
+  question — is data actually flowing? — instead of leaving that to whoever happens
+  to eyeball the logs. **Staging populated**: `kbo_stage_*` is `UNLOGGED`, so the
+  2026-08-13 crash recovery silently wiped 43.5M staged rows and nobody noticed for
+  five days. **Migrations current**: migration 009 sat unapplied for a week with
+  nothing surfacing the drift. **Productive-scrape freshness** (26h): both the
+  uv-stderr outage and the DNS outage left multi-day holes that a naive "did it run"
+  check would have missed. **Brave freshness** (72h): dead on HTTP 402 since
+  2026-08-21, silent for three days before the summary-JSON fix caught it by
+  accident. **Export freshness** (26h): the exporter ran green for weeks pinned to
+  Oostende while the rotation moved on. **Never-productive sector slugs**: four dead
+  goudengids slugs burned ~34 runs marked "done" without ever writing an
+  observation. Failures print first, exit 0/1/2 — first live run against the real
+  database correctly failed on migrations, brave, and dead slugs simultaneously.
+- New `be-leads-nightly` entry point (`pipeline/nightly.py`) moves city rotation,
+  sector queue selection, batch invocation, and verdict computation out of
+  `nightly_scrape.ps1` and into tested Python — that PowerShell logic is where every
+  silent-failure incident this month originated, and none of it could be unit
+  tested where it lived. A data preflight now refuses to spend WAF budget scraping
+  against wiped staging (exit 6) instead of failing one second into the run, the
+  Aug 18-20 pattern. An unhandled setup failure — e.g. a missing `DATABASE_URL` —
+  still writes an `END exit=1 reason=unhandled` state line instead of leaving a bare
+  traceback and no history at all.
+- `nightly_scrape.ps1` slimmed 355 → 194 lines to pure OS glue: Docker preflight,
+  scheduling, and relaying the exit code from `be-leads-nightly`. Exit codes are now
+  0/1/3/4/5/6 (added 6 = data preflight failed). The scheduled task itself is
+  unchanged — same path, same parameters.
+- `BatchReport.goudengids_sector_errors` distinguishes a sector that RAISED (DNS
+  down, browser never reached the site) from one that scraped cleanly and found
+  nothing. The 2026-08-22/23 outage reported `exit=0 sectors_done=0` four times in a
+  row for exactly this reason — every sector failure looked identical to an empty
+  night.
+- New config-vs-reality tests (`test_config_reality.py`): every rotation city must
+  resolve to postcodes, every NACE-mapped sector must be goudengids-scrapeable or
+  explicitly declared unscrapeable (zero orphans found on the first run), and
+  sector slugs are guarded against accidental duplication — with the intentional
+  `recyclagebedrijven` one-to-many pairing explicitly allowlisted rather than
+  silently passing. `SECTOR_NACE_PREFIXES` is promoted from a private constant in
+  `orchestrator.py` to `scraper/lib/sector_nace.py`, closing the same two-owners
+  drift pattern that produced the postcode-map incident below.
+
 ### Fixed — a two-day scraping outage reported `exit=0` four times
 
 - On 2026-08-22 and 2026-08-23 every sector of all four scheduled runs failed with
