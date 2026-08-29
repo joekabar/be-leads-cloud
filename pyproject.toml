@@ -54,6 +54,7 @@ be-leads-suppress = "scraper.db.suppress_cli:cli_main"
 be-leads-export = "scraper.ui.export:cli_main"
 be-leads-export-cities = "scraper.ui.export:cli_cities"
 be-leads-health = "scraper.pipeline.health:cli_main"
+be-leads-nightly = "scraper.pipeline.nightly:cli_main"
 
 [build-system]
 requires = ["hatchling"]
