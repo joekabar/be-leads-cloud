@@ -17,6 +17,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from scraper.pipeline.health import (
+    BRAVE_MAX_AGE_HOURS,
     HealthCheck,
     check_dead_slugs,
     check_export_freshness,
@@ -91,6 +92,23 @@ class TestSourceFreshness:
         r = await check_source_freshness(_pool(fetchrow={"last": old}), "brave", max_age_hours=72)
         assert not r.ok
         assert "brave" in r.name
+
+    async def test_brave_quiet_for_weeks_is_ok_on_free_tier(self) -> None:
+        """Operator decision 2026-09-04: free tier only. Credits burn out mid-month,
+        so weeks of Brave silence are normal operation, not an incident. Only silence
+        past a full monthly reset means the credits never came back."""
+        old = datetime.now(UTC) - timedelta(days=20)
+        r = await check_source_freshness(
+            _pool(fetchrow={"last": old}), "brave", max_age_hours=BRAVE_MAX_AGE_HOURS
+        )
+        assert r.ok
+
+    async def test_brave_dead_past_a_monthly_reset_fails(self) -> None:
+        old = datetime.now(UTC) - timedelta(days=40)
+        r = await check_source_freshness(
+            _pool(fetchrow={"last": old}), "brave", max_age_hours=BRAVE_MAX_AGE_HOURS
+        )
+        assert not r.ok
 
 
 class TestExportFreshness:

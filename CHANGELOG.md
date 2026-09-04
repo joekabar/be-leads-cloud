@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Brave free tier survives its own quota
+
+- Brave signals exhausted free-tier credits with HTTP **402**, not only the
+  documented 403. The unmapped 402 escaped `BraveClient.search` as a raw
+  `TerminalServerError`, killed the entire ddg_brave phase — free DDG fallback
+  included — and marked every night exit 5 from 2026-08-21 onward. 402 now maps
+  to `BraveQuotaExhaustedError`, so the ingester switches to DDG mid-run and the
+  night stays green; Brave resumes by itself when the monthly credits reset.
+- The ingester's Brave branch gained a catch-all mirroring the DDG branch: any
+  future unmapped Brave failure disables Brave for the rest of the run and is
+  recorded in `report.errors`, instead of costing the batch its whole
+  cross-validation pass.
+- `be-leads-health` now allows Brave 35 days of silence (was 72 h): operator
+  decision of 2026-09-04 is free tier only, and 2k monthly queries burning out
+  mid-month is normal operation. Only silence past a full monthly credit reset
+  alarms.
+
 ### Fixed — final-review fix wave for the operational-hardening branch
 
 - `nightly_scrape.ps1`: an END fallback now fires whenever the state log ends on

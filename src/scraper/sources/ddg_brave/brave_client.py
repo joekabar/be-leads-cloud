@@ -27,7 +27,12 @@ class BraveAuthError(ScraperError):
 
 
 class BraveQuotaExhaustedError(ScraperError):
-    """HTTP 403 — monthly free-tier quota exhausted."""
+    """HTTP 402 or 403 — monthly free-tier quota exhausted.
+
+    Brave signals a spent free tier with 402 Payment Required (observed live
+    2026-08-21 through 2026-09-04) as well as the documented 403. Both mean the
+    same thing operationally: stop asking Brave until the monthly credits reset.
+    """
 
 
 class BraveRateLimitedError(ScraperError):
@@ -60,7 +65,7 @@ class BraveClient:
 
         Raises:
             BraveAuthError: on HTTP 401.
-            BraveQuotaExhausted: on HTTP 403 (monthly quota).
+            BraveQuotaExhausted: on HTTP 402 or 403 (monthly quota).
             BraveRateLimited: on HTTP 429 (QPS limit, after retries exhausted).
         """
         params = urllib.parse.urlencode(
@@ -83,6 +88,8 @@ class BraveClient:
         except TerminalServerError as exc:
             if exc.status == 401:
                 raise BraveAuthError("Brave subscription key invalid (HTTP 401)") from exc
+            if exc.status == 402:
+                raise BraveQuotaExhaustedError("Brave monthly quota exhausted (HTTP 402)") from exc
             raise
         except BlockedError as exc:
             raise BraveQuotaExhaustedError("Brave monthly quota exhausted (HTTP 403)") from exc

@@ -212,6 +212,47 @@ class TestValidateCompanies:
         assert report.brave_quota_exhausted is True
         assert report.ddg_queries == 1
 
+    async def test_unexpected_brave_error_switches_to_ddg(self) -> None:
+        """An unmapped Brave failure must disable Brave and continue on DDG.
+
+        The 2026-08-21 HTTP 402 escaped this branch entirely and killed the whole
+        cross-validation phase, free DDG fallback included. Whatever Brave throws,
+        the phase must survive on DDG.
+        """
+        from scraper.sources.ddg_brave.brave_client import BraveClient
+        from scraper.sources.ddg_brave.ddg_client import DdgClient
+
+        pool = _make_pool()
+        mock_runs_cls, mock_obs_cls = _patched_repos()
+
+        brave_client = MagicMock(spec=BraveClient)
+        brave_client.search = AsyncMock(side_effect=RuntimeError("terminal HTTP 418"))
+
+        ddg_client = MagicMock(spec=DdgClient)
+        ddg_client.search = AsyncMock(return_value=[])
+
+        with (
+            patch("scraper.sources.ddg_brave.ingester.RunsRepo", mock_runs_cls),
+            patch("scraper.sources.ddg_brave.ingester.ObservationsRepo", mock_obs_cls),
+            patch("scraper.sources.ddg_brave.ingester.parse_ddg", return_value=[]),
+            patch("scraper.sources.ddg_brave.ingester.query_to_observations", return_value=[]),
+        ):
+            report = await validate_companies(
+                [
+                    ("0403019261", "Delhaize", "Brussel"),
+                    ("0417497106", "Colruyt", "Halle"),
+                ],
+                pool,
+                MagicMock(),
+                brave_client=brave_client,
+                ddg_client=ddg_client,
+                skip_recent_hours=0,
+            )
+
+        assert brave_client.search.await_count == 1  # disabled after the first failure
+        assert report.ddg_queries == 2
+        assert any("terminal HTTP 418" in e for e in report.errors)
+
     async def test_brave_auth_error_stops_brave_usage(self) -> None:
         from scraper.sources.ddg_brave.brave_client import BraveAuthError, BraveClient
 

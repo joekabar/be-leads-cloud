@@ -10,7 +10,10 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from scraper.sources.ddg_brave.brave_client import BraveClient
+import pytest
+
+from scraper.lib.errors import TerminalServerError
+from scraper.sources.ddg_brave.brave_client import BraveClient, BraveQuotaExhaustedError
 
 
 def _client_with_headers(headers: dict[str, str]) -> BraveClient:
@@ -52,3 +55,29 @@ class TestQuotaRecording:
     def test_search_result_is_unaffected(self) -> None:
         client = _client_with_headers({"x-ratelimit-remaining": "49, 1998"})
         assert asyncio.run(client.search("q")) == {"web": {"results": []}}
+
+
+def _client_raising(status: int) -> BraveClient:
+    polite = MagicMock()
+    polite.get = AsyncMock(
+        side_effect=TerminalServerError(
+            status, "https://api.search.brave.com/", f"terminal HTTP {status}"
+        )
+    )
+    return BraveClient(polite, "test-key")
+
+
+class TestStatusMapping:
+    def test_http_402_is_quota_exhaustion(self) -> None:
+        """Brave signals exhausted free-tier credits with 402, not only 403.
+
+        From 2026-08-21 the API returned 402 for two weeks; the unmapped status
+        escaped as TerminalServerError and killed the whole ddg_brave phase —
+        including the free DDG fallback that should have carried the run.
+        """
+        with pytest.raises(BraveQuotaExhaustedError):
+            asyncio.run(_client_raising(402).search("q"))
+
+    def test_other_terminal_statuses_still_propagate(self) -> None:
+        with pytest.raises(TerminalServerError):
+            asyncio.run(_client_raising(500).search("q"))

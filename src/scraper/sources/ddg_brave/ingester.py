@@ -117,6 +117,17 @@ async def validate_companies(
                     report.brave_quota_exhausted = True
                     log.error("brave_auth_error_stopping", error=str(exc))
                     report.errors.append(str(exc))
+                except Exception as exc:
+                    # An unmapped Brave failure (the 2026-08-21 HTTP 402 was one)
+                    # must never cost the batch its whole cross-validation pass:
+                    # disable Brave for the rest of the run and carry on with DDG.
+                    brave_quota_exhausted = True
+                    report.brave_quota_exhausted = True
+                    log.error(
+                        "brave_unexpected_error_switching_to_ddg",
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                    report.errors.append(f"brave: {type(exc).__name__}: {exc}")
 
             if engine_used is None and use_ddg_fallback and ddg_client is not None:
                 try:

@@ -17,6 +17,12 @@ if TYPE_CHECKING:
 
 _MIGRATION_RE = re.compile(r"^(\d{3})_.*\.sql$")
 
+#: Operator decision 2026-09-04: Brave runs on the free tier only. Its 2k monthly
+#: queries burn out mid-month, so weeks of silence are normal operation — the run
+#: falls back to DDG. Only silence past a full monthly credit reset (plus margin)
+#: means Brave never came back and deserves an alarm.
+BRAVE_MAX_AGE_HOURS = 35 * 24
+
 
 @dataclass(frozen=True, slots=True)
 class HealthCheck:
@@ -148,7 +154,7 @@ async def run_health(pool: Any, *, migrations_dir: Path, export_dir: Path) -> li
         await check_staging(pool),
         await check_migrations(pool, migrations_dir),
         await check_scrape_freshness(pool),
-        await check_source_freshness(pool, "brave", max_age_hours=72),
+        await check_source_freshness(pool, "brave", max_age_hours=BRAVE_MAX_AGE_HOURS),
         check_export_freshness(export_dir),
         await check_dead_slugs(pool),
     ]
